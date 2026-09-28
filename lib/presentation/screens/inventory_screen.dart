@@ -33,13 +33,25 @@ class InventoryScreen extends StatefulWidget {
 
 class _InventoryScreenState extends State<InventoryScreen> {
   String _selectedCategoryId = 'all';
-  String _selectedStockFilter = 'all'; // 'all', 'inStock', 'lowStock', 'outOfStock'
+  String _selectedStockFilter =
+      'all'; // 'all', 'inStock', 'lowStock', 'outOfStock'
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   Timer? _searchDebounceTimer;
 
   late final Stream<List<ProductType>> _categoriesStream;
   late final Stream<List<InventoryItemData>> _inventoryItemsStream;
+
+  // Memoization cache to avoid expensive allocations and O(N) operations on redundant rebuilds
+  List<InventoryItemData>? _lastAllItems;
+  String? _lastCategoryId;
+  String? _lastStockFilter;
+  String? _lastSearchQuery;
+  int _cachedInStockCount = 0;
+  int _cachedLowStockCount = 0;
+  int _cachedOutOfStockCount = 0;
+  Map<String, int> _cachedCategoryCounts = {};
+  List<GroupedInventoryItem> _cachedGroupedItems = [];
 
   @override
   void initState() {
@@ -71,17 +83,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final activeStoreId = DevicePrefs.storeId;
     final activeCompanyId = DevicePrefs.companyId;
 
-    Expression<bool> invCondition = widget.db.inventories.productId.equalsExp(widget.db.products.id) &
+    Expression<bool> invCondition =
+        widget.db.inventories.productId.equalsExp(widget.db.products.id) &
         widget.db.inventories.isDeleted.equals(false);
     if (activeStoreId != null && activeStoreId.isNotEmpty) {
-      invCondition = invCondition & widget.db.inventories.storeId.equals(activeStoreId);
+      invCondition =
+          invCondition & widget.db.inventories.storeId.equals(activeStoreId);
     }
 
     final query = widget.db.select(widget.db.products).join([
-      leftOuterJoin(
-        widget.db.inventories,
-        invCondition,
-      ),
+      leftOuterJoin(widget.db.inventories, invCondition),
       leftOuterJoin(
         widget.db.productTypes,
         widget.db.productTypes.id.equalsExp(widget.db.products.productTypeId) &
@@ -91,7 +102,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
     Expression<bool> prodCondition = widget.db.products.isDeleted.equals(false);
     if (activeCompanyId != null && activeCompanyId.isNotEmpty) {
-      prodCondition = prodCondition & widget.db.products.companyId.equals(activeCompanyId);
+      prodCondition =
+          prodCondition & widget.db.products.companyId.equals(activeCompanyId);
     }
     query.where(prodCondition);
 
@@ -119,7 +131,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
               categoryName: category?.typeName ?? existing.categoryName,
               categoryId: category?.id ?? existing.categoryId,
             );
-          } else if (activeStoreId != null && inventory != null && inventory.storeId == activeStoreId) {
+          } else if (activeStoreId != null &&
+              inventory != null &&
+              inventory.storeId == activeStoreId) {
             productMap[product.id] = InventoryItemData(
               product: product,
               inventory: inventory,
@@ -136,20 +150,26 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Stream<List<ProductType>> _watchCategories() {
     final activeCompanyId = DevicePrefs.companyId;
     if (activeCompanyId != null && activeCompanyId.isNotEmpty) {
-      return (widget.db.select(widget.db.productTypes)
-            ..where((c) => c.isDeleted.equals(false) & c.companyId.equals(activeCompanyId)))
+      return (widget.db.select(widget.db.productTypes)..where(
+            (c) =>
+                c.isDeleted.equals(false) & c.companyId.equals(activeCompanyId),
+          ))
           .watch();
     }
-    return (widget.db.select(widget.db.productTypes)
-          ..where((c) => c.isDeleted.equals(false)))
-        .watch();
+    return (widget.db.select(
+      widget.db.productTypes,
+    )..where((c) => c.isDeleted.equals(false))).watch();
   }
 
   void _showAddItemDialog(List<ProductType> categories) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.inventoryAdd)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.inventoryAdd,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to add products.'),
+          content: Text(
+            'Access Denied: You do not have permission to add products.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -157,18 +177,22 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
     showDialog(
       context: context,
-      builder: (ctx) => AddProductDialog(
-        db: widget.db,
-        categories: categories,
-      ),
+      builder: (ctx) => AddProductDialog(db: widget.db, categories: categories),
     );
   }
 
-  void _showEditProductDialog(InventoryItemData item, List<ProductType> categories) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.inventoryEdit)) {
+  void _showEditProductDialog(
+    InventoryItemData item,
+    List<ProductType> categories,
+  ) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.inventoryEdit,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to edit products.'),
+          content: Text(
+            'Access Denied: You do not have permission to edit products.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -185,11 +209,18 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
-  void _showAddVariantDialog(GroupedInventoryItem item, List<ProductType> categories) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.inventoryAdd)) {
+  void _showAddVariantDialog(
+    GroupedInventoryItem item,
+    List<ProductType> categories,
+  ) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.inventoryAdd,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to add products.'),
+          content: Text(
+            'Access Denied: You do not have permission to add products.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -216,7 +247,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
-  void _showProductVariantsSheet(GroupedInventoryItem groupedItem, List<ProductType> categories) {
+  void _showProductVariantsSheet(
+    GroupedInventoryItem groupedItem,
+    List<ProductType> categories,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -234,11 +268,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
-  List<GroupedInventoryItem> _groupInventoryItems(List<InventoryItemData> items) {
+  List<GroupedInventoryItem> _groupInventoryItems(
+    List<InventoryItemData> items,
+  ) {
     final Map<String, Map<String, InventoryItemData>> groups = {};
     for (final item in items) {
-      final key = '${item.categoryId}::${item.product.productName.trim().toLowerCase()}';
-      final variantMap = groups.putIfAbsent(key, () => <String, InventoryItemData>{});
+      final key =
+          '${item.categoryId}::${item.product.productName.trim().toLowerCase()}';
+      final variantMap = groups.putIfAbsent(
+        key,
+        () => <String, InventoryItemData>{},
+      );
       // Deduplicate variants by product.id
       variantMap.putIfAbsent(item.product.id, () => item);
     }
@@ -256,10 +296,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   void _showAddCategoryDialog() {
-    if (!PermissionService.instance.hasPermission(PosPermissions.inventoryCategories)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.inventoryCategories,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to manage categories.'),
+          content: Text(
+            'Access Denied: You do not have permission to manage categories.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -291,25 +335,28 @@ class _InventoryScreenState extends State<InventoryScreen> {
               if (name.isNotEmpty) {
                 final companyId = DevicePrefs.companyId!;
                 final catId = const uuid.Uuid().v4();
-                
+
                 // Save locally
-                await widget.db.into(widget.db.productTypes).insert(
-                  ProductTypesCompanion.insert(
-                    id: catId,
-                    companyId: companyId,
-                    typeName: name,
-                  )
-                );
-                
+                await widget.db
+                    .into(widget.db.productTypes)
+                    .insert(
+                      ProductTypesCompanion.insert(
+                        id: catId,
+                        companyId: companyId,
+                        typeName: name,
+                      ),
+                    );
+
                 // Queue Sync
-                await widget.db.posDao.queueSync('product_types', catId, 'INSERT', {
-                  'id': catId,
-                  'company_id': companyId,
-                  'type_name': name,
-                  'created_at': DateTime.now().toIso8601String(),
-                  'updated_at': DateTime.now().toIso8601String(),
-                });
-                
+                await widget.db.posDao
+                    .queueSync('product_types', catId, 'INSERT', {
+                      'id': catId,
+                      'company_id': companyId,
+                      'type_name': name,
+                      'created_at': DateTime.now().toIso8601String(),
+                      'updated_at': DateTime.now().toIso8601String(),
+                    });
+
                 if (ctx.mounted) Navigator.pop(ctx);
               }
             },
@@ -323,59 +370,82 @@ class _InventoryScreenState extends State<InventoryScreen> {
   @override
   Widget build(BuildContext context) {
     final content = StreamBuilder<List<ProductType>>(
-        stream: _categoriesStream,
-        builder: (context, catSnapshot) {
-          final categories = catSnapshot.data ?? [];
+      stream: _categoriesStream,
+      builder: (context, catSnapshot) {
+        final categories = catSnapshot.data ?? [];
 
-          return StreamBuilder<List<InventoryItemData>>(
-            stream: _inventoryItemsStream,
-            builder: (context, itemSnapshot) {
-              if (itemSnapshot.connectionState == ConnectionState.waiting && !itemSnapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
+        return StreamBuilder<List<InventoryItemData>>(
+          stream: _inventoryItemsStream,
+          builder: (context, itemSnapshot) {
+            if (itemSnapshot.connectionState == ConnectionState.waiting &&
+                !itemSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-              final allItems = itemSnapshot.data ?? [];
+            final allItems = itemSnapshot.data ?? [];
 
-              // Single-pass computation for categories count and stock status breakdown (O(N) instead of O(N*M))
-              int inStockCount = 0;
-              int lowStockCount = 0;
-              int outOfStockCount = 0;
-              final Map<String, int> categoryCounts = {};
+            // Memoize calculation: only recompute O(N) counts and grouping when data or filters change
+            if (!identical(_lastAllItems, allItems) ||
+                _lastCategoryId != _selectedCategoryId ||
+                _lastStockFilter != _selectedStockFilter ||
+                _lastSearchQuery != _searchQuery) {
+              _lastAllItems = allItems;
+              _lastCategoryId = _selectedCategoryId;
+              _lastStockFilter = _selectedStockFilter;
+              _lastSearchQuery = _searchQuery;
+
+              _cachedInStockCount = 0;
+              _cachedLowStockCount = 0;
+              _cachedOutOfStockCount = 0;
+              _cachedCategoryCounts = {};
 
               for (final item in allItems) {
                 if (!item.product.isActive) continue;
                 final stock = item.inventory?.quantityOnHand ?? 0.0;
-                final threshold = item.product.sellBy == 'fraction' ? 5.0 : 10.0;
+                final threshold = item.product.sellBy == 'fraction'
+                    ? 5.0
+                    : 10.0;
 
                 if (stock <= 0) {
-                  outOfStockCount++;
+                  _cachedOutOfStockCount++;
                 } else if (stock <= threshold) {
-                  lowStockCount++;
+                  _cachedLowStockCount++;
                 } else {
-                  inStockCount++;
+                  _cachedInStockCount++;
                 }
 
-                categoryCounts[item.categoryId] = (categoryCounts[item.categoryId] ?? 0) + 1;
+                _cachedCategoryCounts[item.categoryId] =
+                    (_cachedCategoryCounts[item.categoryId] ?? 0) + 1;
               }
 
-              // Filter by category, active status, search query, and interactive quick stock filter
               final filteredItems = allItems.where((item) {
                 if (!item.product.isActive) return false;
 
-                final matchesCategory = _selectedCategoryId == 'all' ||
+                final matchesCategory =
+                    _selectedCategoryId == 'all' ||
                     item.categoryId == _selectedCategoryId;
                 if (!matchesCategory) return false;
 
                 if (_selectedStockFilter != 'all') {
                   final stock = item.inventory?.quantityOnHand ?? 0.0;
-                  final threshold = item.product.sellBy == 'fraction' ? 5.0 : 10.0;
-                  if (_selectedStockFilter == 'inStock' && stock <= threshold) return false;
-                  if (_selectedStockFilter == 'lowStock' && (stock <= 0 || stock > threshold)) return false;
-                  if (_selectedStockFilter == 'outOfStock' && stock > 0) return false;
+                  final threshold = item.product.sellBy == 'fraction'
+                      ? 5.0
+                      : 10.0;
+                  if (_selectedStockFilter == 'inStock' && stock <= threshold) {
+                    return false;
+                  }
+                  if (_selectedStockFilter == 'lowStock' &&
+                      (stock <= 0 || stock > threshold)) {
+                    return false;
+                  }
+                  if (_selectedStockFilter == 'outOfStock' && stock > 0) {
+                    return false;
+                  }
                 }
 
                 final q = _searchQuery.toLowerCase();
-                final matchesSearch = q.isEmpty ||
+                final matchesSearch =
+                    q.isEmpty ||
                     item.product.productName.toLowerCase().contains(q) ||
                     (item.product.sku?.toLowerCase().contains(q) ?? false) ||
                     (item.product.barcode?.toLowerCase().contains(q) ?? false);
@@ -383,262 +453,379 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 return matchesSearch;
               }).toList();
 
-              final groupedItems = _groupInventoryItems(filteredItems);
+              _cachedGroupedItems = _groupInventoryItems(filteredItems);
+            }
 
-              return Column(
-                children: [
-                  // Search and Category Bar Container
-                  Container(
-                    color: AppTheme.surfaceColor,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-                    child: Column(
-                      children: [
-                        // Search bar
-                        TextField(
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            hintText: 'Search product name, SKU, or barcode...',
-                            hintStyle: TextStyle(fontSize: 13.5, color: Colors.grey.shade500),
-                            prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                            suffixIcon: _searchQuery.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear_rounded, size: 18),
-                                    onPressed: () {
-                                      _searchDebounceTimer?.cancel();
-                                      setState(() {
-                                        _searchController.clear();
-                                        _searchQuery = '';
-                                      });
-                                    },
-                                  )
-                                : null,
-                            isDense: true,
+            final inStockCount = _cachedInStockCount;
+            final lowStockCount = _cachedLowStockCount;
+            final outOfStockCount = _cachedOutOfStockCount;
+            final categoryCounts = _cachedCategoryCounts;
+            final groupedItems = _cachedGroupedItems;
+
+            return Column(
+              children: [
+                // Search and Category Bar Container (tightened padding for vertical room)
+                Container(
+                  color: AppTheme.surfaceColor,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Column(
+                    children: [
+                      // Search bar
+                      TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: 'Search product name, SKU, or barcode...',
+                          hintStyle: TextStyle(
+                            fontSize: 13.5,
+                            color: Colors.grey.shade500,
                           ),
-                          onChanged: _onSearchChanged,
-                        ),
-                        const SizedBox(height: 12),
-
-                        // Categories Horizontal Scroll List
-                        SizedBox(
-                          height: 38,
-                          child: ListView(
-                            scrollDirection: Axis.horizontal,
-                            children: [
-                              _CategoryChip(
-                                label: 'All Items',
-                                count: allItems.length,
-                                isSelected: _selectedCategoryId == 'all',
-                                onTap: () => setState(() => _selectedCategoryId = 'all'),
-                              ),
-                              ...categories.map((c) {
-                                final count = categoryCounts[c.id] ?? 0;
-                                return _CategoryChip(
-                                  label: c.typeName,
-                                  count: count,
-                                  isSelected: _selectedCategoryId == c.id,
-                                  onTap: () => setState(() => _selectedCategoryId = c.id),
-                                );
-                              }),
-                              if (PermissionService.instance.hasPermission(PosPermissions.inventoryCategories))
-                                Padding(
-                                  padding: const EdgeInsets.only(left: 8.0),
-                                  child: ActionChip(
-                                    label: const Row(
-                                      children: [
-                                        Icon(Icons.add_rounded, size: 16, color: AppTheme.primaryColor),
-                                        SizedBox(width: 4),
-                                        Text('New Category', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-                                      ],
-                                    ),
-                                    backgroundColor: AppTheme.primaryColor.withValues(alpha: 0.1),
-                                    side: BorderSide.none,
-                                    onPressed: _showAddCategoryDialog,
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 20,
+                          ),
+                          suffixIcon: _searchQuery.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.clear_rounded,
+                                    size: 18,
                                   ),
-                                ),
-                            ],
-                          ),
+                                  onPressed: () {
+                                    _searchDebounceTimer?.cancel();
+                                    setState(() {
+                                      _searchController.clear();
+                                      _searchQuery = '';
+                                    });
+                                  },
+                                )
+                              : null,
+                          isDense: true,
                         ),
-                      ],
-                    ),
-                  ),
+                        onChanged: _onSearchChanged,
+                      ),
+                      const SizedBox(height: 8),
 
-                  // Quick Stats bar with interactive stock status filters
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    child: Wrap(
-                      spacing: 12,
-                      runSpacing: 6,
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
+                      // Categories Horizontal Scroll List
+                      SizedBox(
+                        height: 36,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
                           children: [
-                            Text(
-                              'Showing ${groupedItems.length} items',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
-                              ),
+                            _CategoryChip(
+                              label: 'All Items',
+                              count: allItems.length,
+                              isSelected: _selectedCategoryId == 'all',
+                              onTap: () =>
+                                  setState(() => _selectedCategoryId = 'all'),
                             ),
-                            if (_selectedStockFilter != 'all') ...[
-                              const SizedBox(width: 8),
-                              InkWell(
-                                onTap: () => setState(() => _selectedStockFilter = 'all'),
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
+                            ...categories.map((c) {
+                              final count = categoryCounts[c.id] ?? 0;
+                              return _CategoryChip(
+                                label: c.typeName,
+                                count: count,
+                                isSelected: _selectedCategoryId == c.id,
+                                onTap: () =>
+                                    setState(() => _selectedCategoryId = c.id),
+                              );
+                            }),
+                            if (PermissionService.instance.hasPermission(
+                              PosPermissions.inventoryCategories,
+                            ))
+                              Padding(
+                                padding: const EdgeInsets.only(left: 8.0),
+                                child: ActionChip(
+                                  label: const Row(
                                     children: [
-                                      Icon(Icons.close_rounded, size: 12, color: Colors.black54),
-                                      SizedBox(width: 2),
-                                      Text('Reset Filter', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black87)),
+                                      Icon(
+                                        Icons.add_rounded,
+                                        size: 16,
+                                        color: AppTheme.primaryColor,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'New Category',
+                                        style: TextStyle(
+                                          color: AppTheme.primaryColor,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ],
                                   ),
+                                  backgroundColor: AppTheme.primaryColor
+                                      .withValues(alpha: 0.1),
+                                  side: BorderSide.none,
+                                  onPressed: _showAddCategoryDialog,
                                 ),
                               ),
-                            ],
                           ],
                         ),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
-                          children: [
-                            _MiniLegend(
-                              color: AppTheme.inStockColor,
-                              label: 'In Stock ($inStockCount)',
-                              isSelected: _selectedStockFilter == 'inStock',
-                              onTap: () => setState(() => _selectedStockFilter = _selectedStockFilter == 'inStock' ? 'all' : 'inStock'),
-                            ),
-                            _MiniLegend(
-                              color: AppTheme.lowStockColor,
-                              label: 'Low ($lowStockCount)',
-                              isSelected: _selectedStockFilter == 'lowStock',
-                              onTap: () => setState(() => _selectedStockFilter = _selectedStockFilter == 'lowStock' ? 'all' : 'lowStock'),
-                            ),
-                            _MiniLegend(
-                              color: AppTheme.outOfStockColor,
-                              label: 'Out ($outOfStockCount)',
-                              isSelected: _selectedStockFilter == 'outOfStock',
-                              onTap: () => setState(() => _selectedStockFilter = _selectedStockFilter == 'outOfStock' ? 'all' : 'outOfStock'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
 
-                  // Box-like Items Grid
-                  Expanded(
-                    child: groupedItems.isEmpty
-                        ? _buildEmptyState()
-                        : LayoutBuilder(
-                            builder: (context, constraints) {
-                              // Responsive columns based on available width:
-                              // - > 1150px (Desktop POS): 5 cards per row
-                              // - 880px - 1150px (Tablet Landscape): 4 cards per row
-                              // - 560px - 880px (Tablet Portrait / Foldable): 3 cards per row
-                              // - 340px - 560px (Phones): 2 cards per row (grid boxes)
-                              // - < 340px (Ultra-narrow): 1 card per row
-                              final int crossAxisCount;
-                              final double childAspectRatio;
-
-                              if (constraints.maxWidth > 1150) {
-                                crossAxisCount = 5;
-                                childAspectRatio = 0.86;
-                              } else if (constraints.maxWidth > 880) {
-                                crossAxisCount = 4;
-                                childAspectRatio = 0.85;
-                              } else if (constraints.maxWidth > 560) {
-                                crossAxisCount = 3;
-                                childAspectRatio = 0.84;
-                              } else if (constraints.maxWidth > 340) {
-                                crossAxisCount = 2;
-                                childAspectRatio = 0.82;
-                              } else {
-                                crossAxisCount = 1;
-                                childAspectRatio = 1.6;
-                              }
-
-                              return GridView.builder(
-                                padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: crossAxisCount,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  childAspectRatio: childAspectRatio,
+                // Quick Stats bar with interactive stock status filters (compact padding)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Showing ${groupedItems.length} items',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                          if (_selectedStockFilter != 'all') ...[
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () =>
+                                  setState(() => _selectedStockFilter = 'all'),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
                                 ),
-                                itemCount: groupedItems.length,
-                                itemBuilder: (context, index) {
-                                  final grouped = groupedItems[index];
-                                  final isMulti = grouped.isMultiVariant;
-                                  final primary = grouped.primaryItem;
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.close_rounded,
+                                      size: 12,
+                                      color: Colors.black54,
+                                    ),
+                                    SizedBox(width: 2),
+                                    Text(
+                                      'Reset Filter',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          _MiniLegend(
+                            color: AppTheme.inStockColor,
+                            label: 'In Stock ($inStockCount)',
+                            isSelected: _selectedStockFilter == 'inStock',
+                            onTap: () => setState(
+                              () => _selectedStockFilter =
+                                  _selectedStockFilter == 'inStock'
+                                  ? 'all'
+                                  : 'inStock',
+                            ),
+                          ),
+                          _MiniLegend(
+                            color: AppTheme.lowStockColor,
+                            label: 'Low ($lowStockCount)',
+                            isSelected: _selectedStockFilter == 'lowStock',
+                            onTap: () => setState(
+                              () => _selectedStockFilter =
+                                  _selectedStockFilter == 'lowStock'
+                                  ? 'all'
+                                  : 'lowStock',
+                            ),
+                          ),
+                          _MiniLegend(
+                            color: AppTheme.outOfStockColor,
+                            label: 'Out ($outOfStockCount)',
+                            isSelected: _selectedStockFilter == 'outOfStock',
+                            onTap: () => setState(
+                              () => _selectedStockFilter =
+                                  _selectedStockFilter == 'outOfStock'
+                                  ? 'all'
+                                  : 'outOfStock',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
 
-                                  return InventoryItemCard(
-                                    key: Key('inventory_card_${primary.product.id}'),
-                                    productName: grouped.productName,
-                                    categoryName: grouped.categoryName,
-                                    sku: isMulti ? null : primary.product.sku,
-                                    barcode: isMulti ? null : primary.product.barcode,
-                                    price: isMulti ? grouped.minPrice : primary.product.price,
-                                    priceRange: isMulti
-                                        ? (grouped.minPrice == grouped.maxPrice
+                // Box-like Items Grid with virtualization optimizations
+                Expanded(
+                  child: groupedItems.isEmpty
+                      ? _buildEmptyState()
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Responsive columns based on available width:
+                            // - > 1150px (Desktop POS): 5 cards per row
+                            // - 880px - 1150px (Tablet Landscape): 4 cards per row
+                            // - 560px - 880px (Tablet Portrait / Foldable): 3 cards per row
+                            // - 340px - 560px (Phones): 2 cards per row (grid boxes)
+                            // - < 340px (Ultra-narrow): 1 card per row
+                            final int crossAxisCount;
+                            final double childAspectRatio;
+
+                            if (constraints.maxWidth > 1150) {
+                              crossAxisCount = 5;
+                              childAspectRatio = 0.85;
+                            } else if (constraints.maxWidth > 880) {
+                              crossAxisCount = 4;
+                              childAspectRatio = 0.82;
+                            } else if (constraints.maxWidth > 560) {
+                              crossAxisCount = 3;
+                              childAspectRatio = 0.80;
+                            } else if (constraints.maxWidth > 340) {
+                              crossAxisCount = 2;
+                              childAspectRatio = 0.78;
+                            } else {
+                              crossAxisCount = 1;
+                              childAspectRatio = 1.5;
+                            }
+
+                            return GridView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                              addAutomaticKeepAlives: false,
+                              addRepaintBoundaries: true,
+                              cacheExtent: 300,
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: crossAxisCount,
+                                    mainAxisSpacing: 10,
+                                    crossAxisSpacing: 10,
+                                    childAspectRatio: childAspectRatio,
+                                  ),
+                              itemCount: groupedItems.length,
+                              itemBuilder: (context, index) {
+                                final grouped = groupedItems[index];
+                                final isMulti = grouped.isMultiVariant;
+                                final primary = grouped.primaryItem;
+
+                                return InventoryItemCard(
+                                  key: Key(
+                                    'inventory_card_${primary.product.id}',
+                                  ),
+                                  productName: grouped.productName,
+                                  categoryName: grouped.categoryName,
+                                  sku: isMulti ? null : primary.product.sku,
+                                  barcode: isMulti
+                                      ? null
+                                      : primary.product.barcode,
+                                  price: isMulti
+                                      ? grouped.minPrice
+                                      : primary.product.price,
+                                  priceRange: isMulti
+                                      ? (grouped.minPrice == grouped.maxPrice
                                             ? '₱${grouped.minPrice.toStringAsFixed(2)}'
                                             : '₱${grouped.minPrice.toStringAsFixed(2)} – ₱${grouped.maxPrice.toStringAsFixed(2)}')
-                                        : null,
-                                    variantCount: isMulti ? grouped.variants.length : null,
-                                    variantName: isMulti ? null : primary.product.variantName,
-                                    variantDetails: isMulti
-                                        ? grouped.variants.map((v) => (
-                                            name: v.product.variantName ?? 'Standard',
-                                            price: '₱${v.product.price.toStringAsFixed(2)}',
-                                          )).toList()
-                                        : null,
-                                    imagePath: primary.product.imagePath,
-                                    imageUrl: primary.product.imageUrl,
-                                    stockQuantity: grouped.totalStock,
-                                    unit: grouped.unit,
-                                    sellBy: grouped.sellBy,
-                                    canEdit: PermissionService.instance.hasPermission(PosPermissions.inventoryEdit),
-                                    canAdjustStock: PermissionService.instance.hasPermission(PosPermissions.inventoryAdjustStock),
-                                    onTap: () {
-                                      if (isMulti) {
-                                        _showProductVariantsSheet(grouped, categories);
-                                      } else {
-                                        if (PermissionService.instance.hasPermission(PosPermissions.inventoryEdit) ||
-                                            PermissionService.instance.hasPermission(PosPermissions.inventoryAdjustStock)) {
-                                          _showEditProductDialog(primary, categories);
-                                        }
+                                      : null,
+                                  variantCount: isMulti
+                                      ? grouped.variants.length
+                                      : null,
+                                  variantName: isMulti
+                                      ? null
+                                      : primary.product.variantName,
+                                  variantDetails: isMulti
+                                      ? grouped.variants
+                                            .map(
+                                              (v) => (
+                                                name:
+                                                    v.product.variantName ??
+                                                    'Standard',
+                                                price:
+                                                    '₱${v.product.price.toStringAsFixed(2)}',
+                                              ),
+                                            )
+                                            .toList()
+                                      : null,
+                                  imagePath: primary.product.imagePath,
+                                  imageUrl: primary.product.imageUrl,
+                                  stockQuantity: grouped.totalStock,
+                                  unit: grouped.unit,
+                                  sellBy: grouped.sellBy,
+                                  canEdit: PermissionService.instance
+                                      .hasPermission(
+                                        PosPermissions.inventoryEdit,
+                                      ),
+                                  canAdjustStock: PermissionService.instance
+                                      .hasPermission(
+                                        PosPermissions.inventoryAdjustStock,
+                                      ),
+                                  onTap: () {
+                                    if (isMulti) {
+                                      _showProductVariantsSheet(
+                                        grouped,
+                                        categories,
+                                      );
+                                    } else {
+                                      if (PermissionService.instance
+                                              .hasPermission(
+                                                PosPermissions.inventoryEdit,
+                                              ) ||
+                                          PermissionService.instance
+                                              .hasPermission(
+                                                PosPermissions
+                                                    .inventoryAdjustStock,
+                                              )) {
+                                        _showEditProductDialog(
+                                          primary,
+                                          categories,
+                                        );
                                       }
-                                    },
-                                    onQuickStockTap: () {
-                                      if (isMulti) {
-                                        _showProductVariantsSheet(grouped, categories);
-                                      } else {
-                                        if (PermissionService.instance.hasPermission(PosPermissions.inventoryAdjustStock) ||
-                                            PermissionService.instance.hasPermission(PosPermissions.inventoryEdit)) {
-                                          _showEditProductDialog(primary, categories);
-                                        }
+                                    }
+                                  },
+                                  onQuickStockTap: () {
+                                    if (isMulti) {
+                                      _showProductVariantsSheet(
+                                        grouped,
+                                        categories,
+                                      );
+                                    } else {
+                                      if (PermissionService.instance
+                                              .hasPermission(
+                                                PosPermissions
+                                                    .inventoryAdjustStock,
+                                              ) ||
+                                          PermissionService.instance
+                                              .hasPermission(
+                                                PosPermissions.inventoryEdit,
+                                              )) {
+                                        _showEditProductDialog(
+                                          primary,
+                                          categories,
+                                        );
                                       }
-                                    },
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
+                                    }
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
 
     if (!widget.showScaffold) {
       return content;
@@ -646,9 +833,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      drawer: AdminDrawer(
-        db: widget.db,
-      ),
+      drawer: AdminDrawer(db: widget.db),
       appBar: AppBar(
         leading: Builder(
           builder: (context) => IconButton(
@@ -676,7 +861,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
             stream: _categoriesStream,
             builder: (context, snapshot) {
               final categories = snapshot.data ?? [];
-              if (!PermissionService.instance.hasPermission(PosPermissions.inventoryAdd)) {
+              if (!PermissionService.instance.hasPermission(
+                PosPermissions.inventoryAdd,
+              )) {
                 return const SizedBox.shrink();
               }
               return Padding(
@@ -689,7 +876,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                   ),
                   icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text(
@@ -713,7 +903,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inventory_2_outlined, size: 54, color: Colors.grey.shade400),
+          Icon(
+            Icons.inventory_2_outlined,
+            size: 54,
+            color: Colors.grey.shade400,
+          ),
           const SizedBox(height: 12),
           const Text(
             'No matching items found',
@@ -759,10 +953,14 @@ class _CategoryChip extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: isSelected ? AppTheme.primaryColor : AppTheme.backgroundColor,
+              color: isSelected
+                  ? AppTheme.primaryColor
+                  : AppTheme.backgroundColor,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isSelected ? AppTheme.primaryColor : AppTheme.cardBorderColor,
+                color: isSelected
+                    ? AppTheme.primaryColor
+                    : AppTheme.cardBorderColor,
               ),
             ),
             child: Row(
@@ -778,9 +976,14 @@ class _CategoryChip extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
-                    color: isSelected ? Colors.white.withValues(alpha: 0.25) : Colors.black12,
+                    color: isSelected
+                        ? Colors.white.withValues(alpha: 0.25)
+                        : Colors.black12,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
@@ -825,7 +1028,9 @@ class _MiniLegend extends StatelessWidget {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
           decoration: BoxDecoration(
-            color: isSelected ? color.withValues(alpha: 0.14) : Colors.transparent,
+            color: isSelected
+                ? color.withValues(alpha: 0.14)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: isSelected ? color : Colors.transparent,

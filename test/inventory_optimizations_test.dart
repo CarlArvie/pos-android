@@ -31,8 +31,6 @@ void main() {
     test('getCachedFile returns null for uncached path and returns File when cached', () {
       expect(ProductImageService.getCachedFile('non_existent.jpg'), isNull);
 
-      // Verify that after resolving a file or inserting it, it can be retrieved from cache
-      final dummyFile = File('dummy_test_path.jpg');
       // ProductImageService.getCachedFile retrieves from _resolvedFileCache
       expect(ProductImageService.getCachedFile(null), isNull);
       expect(ProductImageService.getCachedFile(''), isNull);
