@@ -19,7 +19,8 @@ class ExportTransactionsDialog extends StatefulWidget {
   });
 
   @override
-  State<ExportTransactionsDialog> createState() => _ExportTransactionsDialogState();
+  State<ExportTransactionsDialog> createState() =>
+      _ExportTransactionsDialogState();
 }
 
 class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
@@ -31,8 +32,9 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
   File? _savedFile;
   List<int>? _cachedBytes;
 
-  List<TransactionDetail> get _targetList =>
-      _selectedScope == 'filtered' ? widget.filteredTransactions : widget.allTransactions;
+  List<TransactionDetail> get _targetList => _selectedScope == 'filtered'
+      ? widget.filteredTransactions
+      : widget.allTransactions;
 
   double get _targetTotalRevenue =>
       _targetList.fold(0.0, (sum, t) => sum + t.transaction.grandTotal);
@@ -51,13 +53,17 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
           transactions: _targetList,
           companyName: 'Apex Supermarket & POS',
           storeName: 'Main Retail Branch',
-          dateRange: _selectedScope == 'filtered' ? widget.activeDateRange : null,
+          dateRange: _selectedScope == 'filtered'
+              ? widget.activeDateRange
+              : null,
         );
       } else {
         final csvString = TransactionExportService.generateCsvReport(
           transactions: _targetList,
           companyName: 'Apex Supermarket & POS',
-          dateRange: _selectedScope == 'filtered' ? widget.activeDateRange : null,
+          dateRange: _selectedScope == 'filtered'
+              ? widget.activeDateRange
+              : null,
           includeItemDetails: _includeItemDetails,
         );
         bytes = csvString.codeUnits;
@@ -80,7 +86,11 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.download_done_rounded, color: Colors.white, size: 20),
+                const Icon(
+                  Icons.download_done_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(child: Text('Saved to Downloads:\n${file.path}')),
               ],
@@ -93,7 +103,10 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -116,13 +129,17 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
             transactions: _targetList,
             companyName: 'Apex Supermarket & POS',
             storeName: 'Main Retail Branch',
-            dateRange: _selectedScope == 'filtered' ? widget.activeDateRange : null,
+            dateRange: _selectedScope == 'filtered'
+                ? widget.activeDateRange
+                : null,
           );
         } else {
           final csvString = TransactionExportService.generateCsvReport(
             transactions: _targetList,
             companyName: 'Apex Supermarket & POS',
-            dateRange: _selectedScope == 'filtered' ? widget.activeDateRange : null,
+            dateRange: _selectedScope == 'filtered'
+                ? widget.activeDateRange
+                : null,
             includeItemDetails: _includeItemDetails,
           );
           bytes = csvString.codeUnits;
@@ -130,7 +147,8 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
         _cachedBytes = bytes;
       }
 
-      File file = _savedFile ??
+      File file =
+          _savedFile ??
           await TransactionExportService.saveReportFile(
             bytes: bytes,
             extension: _selectedFormat,
@@ -140,13 +158,17 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
 
       await TransactionExportService.shareFile(
         file,
-        subject: 'Apex POS Sales Transactions Report (${_targetList.length} orders)',
+        subject:
+            'Apex POS Sales Transactions Report (${_targetList.length} orders)',
         fallbackBytes: bytes,
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Share failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Share failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -156,10 +178,14 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.transactionsExport)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.transactionsExport,
+    )) {
       return AlertDialog(
         title: const Text('Access Denied'),
-        content: const Text('You do not have permission to export transactions.'),
+        content: const Text(
+          'You do not have permission to export transactions.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -169,9 +195,16 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
       );
     }
 
+    final isSmallScreen = MediaQuery.of(context).size.width < 500;
+
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(isSmallScreen ? 16 : 20),
+      ),
+      insetPadding: isSmallScreen
+          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 14)
+          : const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: Column(
@@ -179,23 +212,27 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
           children: [
             // Modal Header
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              decoration: const BoxDecoration(
-                color: AppTheme.primaryColor,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 14 : 20,
+                vertical: isSmallScreen ? 12 : 16,
               ),
+              decoration: const BoxDecoration(color: AppTheme.primaryColor),
               child: Row(
                 children: [
                   Container(
-                    width: 42,
-                    height: 42,
+                    width: isSmallScreen ? 38 : 42,
+                    height: isSmallScreen ? 38 : 42,
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.table_view_rounded, color: Colors.white, size: 22),
+                    child: Icon(
+                      Icons.table_view_rounded,
+                      color: Colors.white,
+                      size: isSmallScreen ? 20 : 22,
+                    ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,13 +248,17 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                         SizedBox(height: 2),
                         Text(
                           'Advanced Excel (.xlsx) & CSV format',
-                          style: TextStyle(color: Colors.white70, fontSize: 11.5),
+                          style: TextStyle(color: Colors.white70, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
@@ -226,7 +267,7 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
 
             // Modal Body
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(isSmallScreen ? 14 : 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -246,7 +287,11 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                           children: [
                             const Text(
                               'Selected Dataset',
-                              style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -264,7 +309,11 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                           children: [
                             const Text(
                               'Total Revenue',
-                              style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -284,7 +333,12 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                   const SizedBox(height: 18),
                   const Text(
                     'EXPORT FORMAT',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.8),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                      letterSpacing: 0.8,
+                    ),
                   ),
                   const SizedBox(height: 8),
 
@@ -303,10 +357,14 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: _selectedFormat == 'xlsx' ? Colors.green.shade50 : Colors.white,
+                              color: _selectedFormat == 'xlsx'
+                                  ? Colors.green.shade50
+                                  : Colors.white,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: _selectedFormat == 'xlsx' ? Colors.green.shade600 : AppTheme.cardBorderColor,
+                                color: _selectedFormat == 'xlsx'
+                                    ? Colors.green.shade600
+                                    : AppTheme.cardBorderColor,
                                 width: _selectedFormat == 'xlsx' ? 2 : 1,
                               ),
                             ),
@@ -317,7 +375,9 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                                   children: [
                                     Icon(
                                       Icons.grid_on_rounded,
-                                      color: _selectedFormat == 'xlsx' ? Colors.green.shade700 : Colors.grey,
+                                      color: _selectedFormat == 'xlsx'
+                                          ? Colors.green.shade700
+                                          : Colors.grey,
                                       size: 20,
                                     ),
                                     const SizedBox(width: 6),
@@ -327,7 +387,9 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.bold,
-                                          color: _selectedFormat == 'xlsx' ? Colors.green.shade900 : AppTheme.primaryColor,
+                                          color: _selectedFormat == 'xlsx'
+                                              ? Colors.green.shade900
+                                              : AppTheme.primaryColor,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -337,7 +399,10 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Multi-sheet formatted workbook with KPI cards',
-                                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
                                 ),
                               ],
                             ),
@@ -357,10 +422,14 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: _selectedFormat == 'csv' ? Colors.blue.shade50 : Colors.white,
+                              color: _selectedFormat == 'csv'
+                                  ? Colors.blue.shade50
+                                  : Colors.white,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: _selectedFormat == 'csv' ? Colors.blue.shade600 : AppTheme.cardBorderColor,
+                                color: _selectedFormat == 'csv'
+                                    ? Colors.blue.shade600
+                                    : AppTheme.cardBorderColor,
                                 width: _selectedFormat == 'csv' ? 2 : 1,
                               ),
                             ),
@@ -371,7 +440,9 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                                   children: [
                                     Icon(
                                       Icons.text_snippet_rounded,
-                                      color: _selectedFormat == 'csv' ? Colors.blue.shade700 : Colors.grey,
+                                      color: _selectedFormat == 'csv'
+                                          ? Colors.blue.shade700
+                                          : Colors.grey,
                                       size: 20,
                                     ),
                                     const SizedBox(width: 6),
@@ -381,7 +452,9 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.bold,
-                                          color: _selectedFormat == 'csv' ? Colors.blue.shade900 : AppTheme.primaryColor,
+                                          color: _selectedFormat == 'csv'
+                                              ? Colors.blue.shade900
+                                              : AppTheme.primaryColor,
                                         ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -391,7 +464,10 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Excel-ready UTF-8 BOM spreadsheet',
-                                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade600,
+                                  ),
                                 ),
                               ],
                             ),
@@ -404,7 +480,12 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                   const SizedBox(height: 18),
                   const Text(
                     'EXPORT SCOPE',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.8),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                      letterSpacing: 0.8,
+                    ),
                   ),
                   const SizedBox(height: 8),
 
@@ -413,7 +494,9 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                     children: [
                       Expanded(
                         child: ChoiceChip(
-                          label: Text('Filtered (${widget.filteredTransactions.length})'),
+                          label: Text(
+                            'Filtered (${widget.filteredTransactions.length})',
+                          ),
                           selected: _selectedScope == 'filtered',
                           onSelected: (val) => setState(() {
                             _selectedScope = 'filtered';
@@ -421,11 +504,15 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                             _cachedBytes = null;
                             _statusMessage = null;
                           }),
-                          selectedColor: AppTheme.accentColor.withValues(alpha: 0.15),
+                          selectedColor: AppTheme.accentColor.withValues(
+                            alpha: 0.15,
+                          ),
                           labelStyle: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: _selectedScope == 'filtered' ? AppTheme.accentColor : AppTheme.primaryColor,
+                            color: _selectedScope == 'filtered'
+                                ? AppTheme.accentColor
+                                : AppTheme.primaryColor,
                           ),
                         ),
                       ),
@@ -440,11 +527,15 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                             _cachedBytes = null;
                             _statusMessage = null;
                           }),
-                          selectedColor: AppTheme.accentColor.withValues(alpha: 0.15),
+                          selectedColor: AppTheme.accentColor.withValues(
+                            alpha: 0.15,
+                          ),
                           labelStyle: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: _selectedScope == 'all' ? AppTheme.accentColor : AppTheme.primaryColor,
+                            color: _selectedScope == 'all'
+                                ? AppTheme.accentColor
+                                : AppTheme.primaryColor,
                           ),
                         ),
                       ),
@@ -454,17 +545,30 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                   if (_statusMessage != null) ...[
                     const SizedBox(height: 12),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.backgroundColor,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.accentColor),
+                          const Icon(
+                            Icons.info_outline_rounded,
+                            size: 14,
+                            color: AppTheme.accentColor,
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
-                            child: Text(_statusMessage!, style: const TextStyle(fontSize: 11, color: AppTheme.primaryColor)),
+                            child: Text(
+                              _statusMessage!,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.primaryColor,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -479,8 +583,12 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
               padding: const EdgeInsets.all(16),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
-                border: Border(top: BorderSide(color: AppTheme.cardBorderColor)),
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(20),
+                ),
+                border: Border(
+                  top: BorderSide(color: AppTheme.cardBorderColor),
+                ),
               ),
               child: Row(
                 children: [
@@ -491,13 +599,27 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                         padding: const EdgeInsets.symmetric(vertical: 13),
                         foregroundColor: AppTheme.primaryColor,
                         side: const BorderSide(color: AppTheme.cardBorderColor),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       icon: _isProcessing
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : const Icon(Icons.save_alt_rounded, size: 18),
-                      label: const Text('Save to Device', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      onPressed: _isProcessing || _targetList.isEmpty ? null : _handleSaveToDevice,
+                      label: const Text(
+                        'Save to Device',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: _isProcessing || _targetList.isEmpty
+                          ? null
+                          : _handleSaveToDevice,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -509,13 +631,30 @@ class _ExportTransactionsDialogState extends State<ExportTransactionsDialog> {
                         backgroundColor: AppTheme.accentColor,
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       icon: _isProcessing
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                           : const Icon(Icons.share_rounded, size: 18),
-                      label: const Text('Share / Open', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      onPressed: _isProcessing || _targetList.isEmpty ? null : _handleShare,
+                      label: const Text(
+                        'Share / Open',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: _isProcessing || _targetList.isEmpty
+                          ? null
+                          : _handleShare,
                     ),
                   ),
                 ],

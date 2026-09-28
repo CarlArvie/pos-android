@@ -10,7 +10,8 @@ import '../../../core/permissions/permission_service.dart';
 
 class TransactionDetailDialog extends StatefulWidget {
   final TransactionDetail transactionDetail;
-  final dynamic db; // dynamic to avoid drift import conflict temporarily, we'll fix it if needed
+  final dynamic
+  db; // dynamic to avoid drift import conflict temporarily, we'll fix it if needed
 
   const TransactionDetailDialog({
     super.key,
@@ -19,17 +20,22 @@ class TransactionDetailDialog extends StatefulWidget {
   });
 
   @override
-  State<TransactionDetailDialog> createState() => _TransactionDetailDialogState();
+  State<TransactionDetailDialog> createState() =>
+      _TransactionDetailDialogState();
 }
 
 class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
   bool _isExporting = false;
 
   void _copyInvoiceNumber() {
-    Clipboard.setData(ClipboardData(text: widget.transactionDetail.transaction.invoiceNo));
+    Clipboard.setData(
+      ClipboardData(text: widget.transactionDetail.transaction.invoiceNo),
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Invoice ${widget.transactionDetail.transaction.invoiceNo} copied!'),
+        content: Text(
+          'Invoice ${widget.transactionDetail.transaction.invoiceNo} copied!',
+        ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
       ),
@@ -37,9 +43,15 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
   }
 
   Future<void> _exportSingleReceipt() async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.transactionsReceipt)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.transactionsReceipt,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Access Denied: You do not have permission to reprint or share receipts.')),
+        const SnackBar(
+          content: Text(
+            'Access Denied: You do not have permission to reprint or share receipts.',
+          ),
+        ),
       );
       return;
     }
@@ -65,7 +77,10 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -82,8 +97,12 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
     final isGCash = (tender?.paymentMethod.toLowerCase() ?? '') == 'gcash';
     final isMaya = (tender?.paymentMethod.toLowerCase() ?? '') == 'maya';
     final isCredit = (tender?.paymentMethod.toLowerCase() ?? '') == 'credit';
-    final hasReceipt = PermissionService.instance.hasPermission(PosPermissions.transactionsReceipt);
-    final hasRefund = PermissionService.instance.hasPermission(PosPermissions.transactionsRefund);
+    final hasReceipt = PermissionService.instance.hasPermission(
+      PosPermissions.transactionsReceipt,
+    );
+    final hasRefund = PermissionService.instance.hasPermission(
+      PosPermissions.transactionsRefund,
+    );
 
     Color tenderColor = Colors.teal;
     IconData tenderIcon = Icons.money_rounded;
@@ -101,32 +120,48 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
       tenderIcon = Icons.credit_card_rounded;
     }
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isSmallScreen = screenWidth < 500;
+
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(isSmallScreen ? 16 : 20),
+      ),
+      insetPadding: isSmallScreen
+          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 14)
+          : const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 680),
+        constraints: BoxConstraints(
+          maxWidth: 480,
+          maxHeight: isSmallScreen ? screenHeight * 0.92 : 680,
+        ),
         child: Column(
           children: [
             // Receipt Header Banner
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              decoration: const BoxDecoration(
-                color: AppTheme.primaryColor,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 14 : 20,
+                vertical: isSmallScreen ? 12 : 16,
               ),
+              decoration: const BoxDecoration(color: AppTheme.primaryColor),
               child: Row(
                 children: [
                   Container(
-                    width: 44,
-                    height: 44,
+                    width: isSmallScreen ? 38 : 44,
+                    height: isSmallScreen ? 38 : 44,
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 24),
+                    child: Icon(
+                      Icons.receipt_long_rounded,
+                      color: Colors.white,
+                      size: isSmallScreen ? 20 : 24,
+                    ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -142,13 +177,20 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                         const SizedBox(height: 2),
                         Text(
                           'Apex Supermarket • Main Checkout #1',
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11.5),
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.8),
+                            fontSize: 11,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
@@ -158,7 +200,8 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
             // Scrollable Content
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.all(18),
+                physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.all(isSmallScreen ? 12 : 18),
                 children: [
                   // Invoice & Date Row
                   Container(
@@ -187,19 +230,32 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                                 const SizedBox(width: 6),
                                 InkWell(
                                   onTap: _copyInvoiceNumber,
-                                  child: const Icon(Icons.copy_rounded, size: 14, color: AppTheme.accentColor),
+                                  child: const Icon(
+                                    Icons.copy_rounded,
+                                    size: 14,
+                                    color: AppTheme.accentColor,
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              tx.transactionDatetime.toLocal().toString().substring(0, 16),
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                              tx.transactionDatetime
+                                  .toLocal()
+                                  .toString()
+                                  .substring(0, 16),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
                             ),
                           ],
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: AppTheme.inStockBg,
                             borderRadius: BorderRadius.circular(6),
@@ -239,21 +295,33 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                     child: Column(
                       children: [
                         for (int idx = 0; idx < detail.items.length; idx++) ...[
-                          if (idx > 0) const Divider(height: 1, thickness: 1, color: AppTheme.cardBorderColor),
+                          if (idx > 0)
+                            const Divider(
+                              height: 1,
+                              thickness: 1,
+                              color: AppTheme.cardBorderColor,
+                            ),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
                                           Flexible(
                                             child: Text(
-                                              detail.items[idx].product.productName,
+                                              detail
+                                                  .items[idx]
+                                                  .product
+                                                  .productName,
                                               style: const TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w600,
@@ -262,18 +330,36 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
-                                          if (detail.items[idx].product.variantName != null &&
-                                              detail.items[idx].product.variantName!.isNotEmpty) ...[
+                                          if (detail
+                                                      .items[idx]
+                                                      .product
+                                                      .variantName !=
+                                                  null &&
+                                              detail
+                                                  .items[idx]
+                                                  .product
+                                                  .variantName!
+                                                  .isNotEmpty) ...[
                                             const SizedBox(width: 6),
                                             Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 5,
+                                                    vertical: 1,
+                                                  ),
                                               decoration: BoxDecoration(
                                                 color: Colors.amber.shade50,
-                                                borderRadius: BorderRadius.circular(4),
-                                                border: Border.all(color: Colors.amber.shade200),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: Colors.amber.shade200,
+                                                ),
                                               ),
                                               child: Text(
-                                                detail.items[idx].product.variantName!,
+                                                detail
+                                                    .items[idx]
+                                                    .product
+                                                    .variantName!,
                                                 style: TextStyle(
                                                   fontSize: 9.5,
                                                   fontWeight: FontWeight.bold,
@@ -288,21 +374,39 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                                       Row(
                                         children: [
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                              vertical: 1,
+                                            ),
                                             decoration: BoxDecoration(
-                                              color: detail.items[idx].product.sellBy == 'fraction'
+                                              color:
+                                                  detail
+                                                          .items[idx]
+                                                          .product
+                                                          .sellBy ==
+                                                      'fraction'
                                                   ? Colors.teal.shade50
                                                   : Colors.blue.shade50,
-                                              borderRadius: BorderRadius.circular(4),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
                                             ),
                                             child: Text(
-                                              detail.items[idx].product.sellBy == 'fraction'
+                                              detail
+                                                          .items[idx]
+                                                          .product
+                                                          .sellBy ==
+                                                      'fraction'
                                                   ? '${detail.items[idx].item.quantity.toStringAsFixed(3)} kg'
                                                   : '${detail.items[idx].item.quantity.toInt()} pcs',
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
-                                                color: detail.items[idx].product.sellBy == 'fraction'
+                                                color:
+                                                    detail
+                                                            .items[idx]
+                                                            .product
+                                                            .sellBy ==
+                                                        'fraction'
                                                     ? Colors.teal.shade800
                                                     : Colors.blue.shade800,
                                               ),
@@ -311,7 +415,10 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                                           const SizedBox(width: 6),
                                           Text(
                                             '@ ₱${detail.items[idx].item.unitPrice.toStringAsFixed(2)}',
-                                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade600,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -356,7 +463,10 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                     ),
                     child: Column(
                       children: [
-                        _buildSummaryRow('Subtotal', '₱${tx.subtotal.toStringAsFixed(2)}'),
+                        _buildSummaryRow(
+                          'Subtotal',
+                          '₱${tx.subtotal.toStringAsFixed(2)}',
+                        ),
                         if (tx.discountTotal > 0)
                           _buildSummaryRow(
                             'Discounts (Senior/PWD)',
@@ -364,10 +474,17 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                             color: Colors.green.shade700,
                           ),
                         if (tx.taxTotal > 0)
-                          _buildSummaryRow('VAT (12%)', '₱${tx.taxTotal.toStringAsFixed(2)}'),
+                          _buildSummaryRow(
+                            'VAT (12%)',
+                            '₱${tx.taxTotal.toStringAsFixed(2)}',
+                          ),
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Divider(height: 1, thickness: 1, color: AppTheme.cardBorderColor),
+                          child: Divider(
+                            height: 1,
+                            thickness: 1,
+                            color: AppTheme.cardBorderColor,
+                          ),
                         ),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -402,7 +519,9 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                     decoration: BoxDecoration(
                       color: tenderColor.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: tenderColor.withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: tenderColor.withValues(alpha: 0.2),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -431,13 +550,18 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                               ),
                               Text(
                                 isCredit
-                                    ? (tender?.referenceNo != null && tender!.referenceNo!.isNotEmpty
-                                        ? 'PO / Ref: ${tender.referenceNo}'
-                                        : 'Charged to customer account')
-                                    : (tender?.referenceNo != null && tender!.referenceNo!.isNotEmpty
-                                        ? 'Ref: ${tender.referenceNo}'
-                                        : 'Tendered: ₱${(tender?.amountTendered ?? tx.grandTotal).toStringAsFixed(2)}'),
-                                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                                    ? (tender?.referenceNo != null &&
+                                              tender!.referenceNo!.isNotEmpty
+                                          ? 'PO / Ref: ${tender.referenceNo}'
+                                          : 'Charged to customer account')
+                                    : (tender?.referenceNo != null &&
+                                              tender!.referenceNo!.isNotEmpty
+                                          ? 'Ref: ${tender.referenceNo}'
+                                          : 'Tendered: ₱${(tender?.amountTendered ?? tx.grandTotal).toStringAsFixed(2)}'),
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Colors.grey.shade700,
+                                ),
                               ),
                             ],
                           ),
@@ -446,7 +570,13 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              const Text('Change', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                              const Text(
+                                'Change',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey,
+                                ),
+                              ),
                               Text(
                                 '₱${tender.changeAmount.toStringAsFixed(2)}',
                                 style: const TextStyle(
@@ -466,11 +596,12 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
 
             // Footer Actions
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: EdgeInsets.all(isSmallScreen ? 10 : 14),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
-                border: Border(top: BorderSide(color: AppTheme.cardBorderColor)),
+                border: Border(
+                  top: BorderSide(color: AppTheme.cardBorderColor),
+                ),
               ),
               child: Row(
                 children: [
@@ -481,17 +612,29 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           foregroundColor: AppTheme.primaryColor,
-                          side: const BorderSide(color: AppTheme.cardBorderColor),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          side: const BorderSide(
+                            color: AppTheme.cardBorderColor,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                         icon: _isExporting
                             ? const SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.share_rounded, size: 16),
-                        label: const Text('Export / Share Receipt', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        label: const Text(
+                          'Export / Share Receipt',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         onPressed: _isExporting ? null : _exportSingleReceipt,
                       ),
                     ),
@@ -505,23 +648,38 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           foregroundColor: Colors.red.shade700,
                           side: BorderSide(color: Colors.red.shade200),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                         icon: const Icon(Icons.refresh_rounded, size: 16),
-                        label: const Text('Refund', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        label: const Text(
+                          'Refund',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         onPressed: () async {
-                          final isCashier = DevicePrefs.currentEmployeeRole?.toLowerCase() != 'admin';
+                          final isCashier =
+                              DevicePrefs.currentEmployeeRole?.toLowerCase() !=
+                              'admin';
                           if (isCashier && DevicePrefs.requirePinForUnlock) {
-                            final authorized = await ManagerOverrideDialog.requestOverride(
-                              context,
-                              widget.db,
-                              'Authorize Refund for Invoice ${widget.transactionDetail.transaction.invoiceNo}',
-                            );
+                            final authorized =
+                                await ManagerOverrideDialog.requestOverride(
+                                  context,
+                                  widget.db,
+                                  'Authorize Refund for Invoice ${widget.transactionDetail.transaction.invoiceNo}',
+                                );
                             if (!authorized) return;
                           }
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Refund authorized! (Feature in development)')),
+                              const SnackBar(
+                                content: Text(
+                                  'Refund authorized! (Feature in development)',
+                                ),
+                              ),
                             );
                           }
                         },
@@ -532,24 +690,46 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
                   (hasReceipt || hasRefund)
                       ? ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
                             backgroundColor: AppTheme.primaryColor,
                             foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                           ),
                           onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          child: const Text(
+                            'Close',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         )
                       : Expanded(
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 12,
+                              ),
                               backgroundColor: AppTheme.primaryColor,
                               foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
                             onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Close', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Text(
+                              'Close',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
                 ],
@@ -567,7 +747,10 @@ class _TransactionDetailDialogState extends State<TransactionDetailDialog> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
           Text(
             value,
             style: TextStyle(

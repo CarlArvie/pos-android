@@ -414,11 +414,11 @@ class _TransactionsViewState extends State<TransactionsView> {
 
                   return Column(
                     children: [
-                      // Header & Action Bar
-                      _buildHeader(filteredTxs, allTxs, hasExport),
-
-                      // KPI Metrics Banner
-                      _buildKpiBanner(
+                      // Unified Control Deck (Header + KPIs + Search + Filters)
+                      _buildUnifiedControlDeck(
+                        filteredTxs: filteredTxs,
+                        allTxs: allTxs,
+                        hasExport: hasExport,
                         totalRevenue: totalRevenue,
                         orderCount: filteredTxs.length,
                         aov: aov,
@@ -429,16 +429,6 @@ class _TransactionsViewState extends State<TransactionsView> {
                         creditCount: creditCount,
                       ),
 
-                      // Search & Filter Controls
-                      _buildFilterControls(),
-
-                      // Active Filter Indicator
-                      if (_isFilterActive())
-                        _buildActiveFilterIndicator(
-                          filteredTxs.length,
-                          allTxs.length,
-                        ),
-
                       // Transactions List or Empty State
                       Expanded(
                         child: filteredTxs.isEmpty
@@ -446,7 +436,7 @@ class _TransactionsViewState extends State<TransactionsView> {
                             : ListView.separated(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 14,
-                                  vertical: 8,
+                                  vertical: 10,
                                 ),
                                 physics: const AlwaysScrollableScrollPhysics(),
                                 cacheExtent: 300,
@@ -479,70 +469,12 @@ class _TransactionsViewState extends State<TransactionsView> {
   }
 
   // ==========================================
-  // Header with Export Action
+  // Unified Control Deck (Decluttered Surface)
   // ==========================================
-  Widget _buildHeader(
-    List<SalesTransaction> filteredTxs,
-    List<SalesTransaction> allTxs,
-    bool hasExport,
-  ) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      color: Colors.white,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Transaction Ledger',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.primaryColor,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Live offline ledger • ${allTxs.length} total orders recorded',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                ),
-              ],
-            ),
-          ),
-          if (hasExport)
-            ElevatedButton.icon(
-              key: const Key('export_transactions_button'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              icon: const Icon(Icons.download_rounded, size: 15),
-              label: const Text(
-                'Export Excel',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-              ),
-              onPressed: () => _openExportModal(filteredTxs, allTxs),
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ==========================================
-  // KPI Metrics Banner
-  // ==========================================
-  Widget _buildKpiBanner({
+  Widget _buildUnifiedControlDeck({
+    required List<SalesTransaction> filteredTxs,
+    required List<SalesTransaction> allTxs,
+    required bool hasExport,
     required double totalRevenue,
     required int orderCount,
     required double aov,
@@ -553,68 +485,311 @@ class _TransactionsViewState extends State<TransactionsView> {
     required int creditCount,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      color: Colors.white,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: AppTheme.cardBorderColor)),
+      ),
       child: Column(
         children: [
-          Row(
-            children: [
-              // Revenue KPI
-              Expanded(
-                child: _buildMetricCard(
-                  label: 'Filtered Revenue',
-                  value: '₱${totalRevenue.toStringAsFixed(2)}',
-                  icon: Icons.payments_rounded,
-                  color: AppTheme.accentColor,
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Orders KPI
-              Expanded(
-                child: _buildMetricCard(
-                  label: 'Total Orders',
-                  value: '$orderCount txs',
-                  icon: Icons.receipt_rounded,
-                  color: AppTheme.primaryColor,
-                ),
-              ),
-              const SizedBox(width: 8),
-              // AOV KPI
-              Expanded(
-                child: _buildMetricCard(
-                  label: 'Avg Ticket',
-                  value: '₱${aov.toStringAsFixed(0)}',
-                  icon: Icons.query_stats_rounded,
-                  color: Colors.teal.shade700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          // Payment Breakdown Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
+          // Row 1: Header & Export
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildMethodPill('Cash', cashCount, Colors.teal),
-                const SizedBox(width: 6),
-                _buildMethodPill('GCash', gcashCount, Colors.blue.shade700),
-                const SizedBox(width: 6),
-                _buildMethodPill('Maya', mayaCount, Colors.green.shade700),
-                const SizedBox(width: 6),
-                _buildMethodPill('Card', cardCount, Colors.indigo),
-                if (creditCount > 0) ...[
-                  const SizedBox(width: 6),
-                  _buildMethodPill(
-                    'Credit',
-                    creditCount,
-                    const Color(0xFFE11D48),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Transaction Ledger',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Live offline ledger • ${allTxs.length} total orders recorded',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
+                if (hasExport)
+                  ElevatedButton.icon(
+                    key: const Key('export_transactions_button'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.download_rounded, size: 15),
+                    label: const Text(
+                      'Export Excel',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    onPressed: () => _openExportModal(filteredTxs, allTxs),
+                  ),
               ],
             ),
           ),
+
+          // Row 2: KPI Metrics Banner
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    // Revenue KPI
+                    Expanded(
+                      child: _buildMetricCard(
+                        label: 'Filtered Revenue',
+                        value: '₱${totalRevenue.toStringAsFixed(2)}',
+                        icon: Icons.payments_rounded,
+                        color: AppTheme.accentColor,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Orders KPI
+                    Expanded(
+                      child: _buildMetricCard(
+                        label: 'Total Orders',
+                        value: '$orderCount txs',
+                        icon: Icons.receipt_rounded,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // AOV KPI
+                    Expanded(
+                      child: _buildMetricCard(
+                        label: 'Avg Ticket',
+                        value: '₱${aov.toStringAsFixed(0)}',
+                        icon: Icons.query_stats_rounded,
+                        color: Colors.teal.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                // Payment Breakdown Chips
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [
+                      _buildMethodPill('Cash', cashCount, Colors.teal),
+                      const SizedBox(width: 6),
+                      _buildMethodPill(
+                        'GCash',
+                        gcashCount,
+                        Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      _buildMethodPill(
+                        'Maya',
+                        mayaCount,
+                        Colors.green.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      _buildMethodPill('Card', cardCount, Colors.indigo),
+                      if (creditCount > 0) ...[
+                        const SizedBox(width: 6),
+                        _buildMethodPill(
+                          'Credit',
+                          creditCount,
+                          const Color(0xFFE11D48),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Row 3: Search Bar with Debounce
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+            child: Container(
+              height: 38,
+              decoration: BoxDecoration(
+                color: AppTheme.backgroundColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.cardBorderColor),
+              ),
+              child: TextField(
+                key: const Key('transaction_search_input'),
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                style: const TextStyle(fontSize: 12.5),
+                decoration: InputDecoration(
+                  hintText: 'Search by Invoice No (e.g. INV-2026-)...',
+                  hintStyle: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade500,
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.search_rounded,
+                    color: AppTheme.accentColor,
+                    size: 18,
+                  ),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded, size: 16),
+                          onPressed: _clearSearch,
+                        )
+                      : null,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+              ),
+            ),
+          ),
+
+          // Row 4: Horizontal Filter Chips
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: [
+                  // Date Presets
+                  _buildFilterChip(
+                    'All Time',
+                    _datePreset == 'all',
+                    () => setState(() => _datePreset = 'all'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'Today',
+                    _datePreset == 'today',
+                    () => setState(() => _datePreset = 'today'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'Yesterday',
+                    _datePreset == 'yesterday',
+                    () => setState(() => _datePreset = 'yesterday'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'Last 7 Days',
+                    _datePreset == '7days',
+                    () => setState(() => _datePreset = '7days'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'This Month',
+                    _datePreset == 'month',
+                    () => setState(() => _datePreset = 'month'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    _customDateRange != null
+                        ? '${_customDateRange!.start.month}/${_customDateRange!.start.day}-${_customDateRange!.end.month}/${_customDateRange!.end.day}'
+                        : 'Custom...',
+                    _datePreset == 'custom',
+                    _pickCustomDateRange,
+                    icon: Icons.calendar_month_rounded,
+                  ),
+
+                  const SizedBox(width: 10),
+                  Container(width: 1, height: 18, color: Colors.grey.shade300),
+                  const SizedBox(width: 10),
+
+                  // Payment Method Filter
+                  _buildFilterChip(
+                    'All Methods',
+                    _paymentMethodFilter == 'all',
+                    () => setState(() => _paymentMethodFilter = 'all'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    '💵 Cash',
+                    _paymentMethodFilter == 'cash',
+                    () => setState(() => _paymentMethodFilter = 'cash'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    '📱 GCash',
+                    _paymentMethodFilter == 'gcash',
+                    () => setState(() => _paymentMethodFilter = 'gcash'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    '💳 Maya',
+                    _paymentMethodFilter == 'maya',
+                    () => setState(() => _paymentMethodFilter = 'maya'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    '💳 Card',
+                    _paymentMethodFilter == 'card',
+                    () => setState(() => _paymentMethodFilter = 'card'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    '🏦 Credit',
+                    _paymentMethodFilter == 'credit',
+                    () => setState(() => _paymentMethodFilter = 'credit'),
+                  ),
+
+                  const SizedBox(width: 10),
+                  Container(width: 1, height: 18, color: Colors.grey.shade300),
+                  const SizedBox(width: 10),
+
+                  // Sort Choices
+                  _buildFilterChip(
+                    'Newest',
+                    _sortBy == 'newest',
+                    () => setState(() => _sortBy = 'newest'),
+                    icon: Icons.arrow_downward_rounded,
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'Oldest',
+                    _sortBy == 'oldest',
+                    () => setState(() => _sortBy = 'oldest'),
+                    icon: Icons.arrow_upward_rounded,
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'Highest ₱',
+                    _sortBy == 'highest',
+                    () => setState(() => _sortBy = 'highest'),
+                  ),
+                  const SizedBox(width: 6),
+                  _buildFilterChip(
+                    'Lowest ₱',
+                    _sortBy == 'lowest',
+                    () => setState(() => _sortBy = 'lowest'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Row 5: Active Filter Indicator Banner
+          if (_isFilterActive())
+            _buildActiveFilterIndicator(filteredTxs.length, allTxs.length),
         ],
       ),
     );
@@ -693,178 +868,6 @@ class _TransactionsViewState extends State<TransactionsView> {
               fontSize: 10.5,
               fontWeight: FontWeight.bold,
               color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==========================================
-  // Filter Controls (Search + Date + Method + Sort)
-  // ==========================================
-  Widget _buildFilterControls() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-      color: Colors.white,
-      child: Column(
-        children: [
-          // Search Bar with Debounce
-          Container(
-            height: 38,
-            decoration: BoxDecoration(
-              color: AppTheme.backgroundColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.cardBorderColor),
-            ),
-            child: TextField(
-              key: const Key('transaction_search_input'),
-              controller: _searchController,
-              onChanged: _onSearchChanged,
-              style: const TextStyle(fontSize: 12.5),
-              decoration: InputDecoration(
-                hintText: 'Search by Invoice No (e.g. INV-2026-)...',
-                hintStyle: TextStyle(
-                  fontSize: 11.5,
-                  color: Colors.grey.shade500,
-                ),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  color: AppTheme.accentColor,
-                  size: 18,
-                ),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear_rounded, size: 16),
-                        onPressed: _clearSearch,
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          // Horizontal Filter Chips
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            child: Row(
-              children: [
-                // Date Presets
-                _buildFilterChip(
-                  'All Time',
-                  _datePreset == 'all',
-                  () => setState(() => _datePreset = 'all'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'Today',
-                  _datePreset == 'today',
-                  () => setState(() => _datePreset = 'today'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'Yesterday',
-                  _datePreset == 'yesterday',
-                  () => setState(() => _datePreset = 'yesterday'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'Last 7 Days',
-                  _datePreset == '7days',
-                  () => setState(() => _datePreset = '7days'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'This Month',
-                  _datePreset == 'month',
-                  () => setState(() => _datePreset = 'month'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  _customDateRange != null
-                      ? '${_customDateRange!.start.month}/${_customDateRange!.start.day}-${_customDateRange!.end.month}/${_customDateRange!.end.day}'
-                      : 'Custom...',
-                  _datePreset == 'custom',
-                  _pickCustomDateRange,
-                  icon: Icons.calendar_month_rounded,
-                ),
-
-                const SizedBox(width: 10),
-                Container(width: 1, height: 18, color: Colors.grey.shade300),
-                const SizedBox(width: 10),
-
-                // Payment Method Filter
-                _buildFilterChip(
-                  'All Methods',
-                  _paymentMethodFilter == 'all',
-                  () => setState(() => _paymentMethodFilter = 'all'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  '💵 Cash',
-                  _paymentMethodFilter == 'cash',
-                  () => setState(() => _paymentMethodFilter = 'cash'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  '📱 GCash',
-                  _paymentMethodFilter == 'gcash',
-                  () => setState(() => _paymentMethodFilter = 'gcash'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  '💳 Maya',
-                  _paymentMethodFilter == 'maya',
-                  () => setState(() => _paymentMethodFilter = 'maya'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  '💳 Card',
-                  _paymentMethodFilter == 'card',
-                  () => setState(() => _paymentMethodFilter = 'card'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  '🏦 Credit',
-                  _paymentMethodFilter == 'credit',
-                  () => setState(() => _paymentMethodFilter = 'credit'),
-                ),
-
-                const SizedBox(width: 10),
-                Container(width: 1, height: 18, color: Colors.grey.shade300),
-                const SizedBox(width: 10),
-
-                // Sort Choices
-                _buildFilterChip(
-                  'Newest',
-                  _sortBy == 'newest',
-                  () => setState(() => _sortBy = 'newest'),
-                  icon: Icons.arrow_downward_rounded,
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'Oldest',
-                  _sortBy == 'oldest',
-                  () => setState(() => _sortBy = 'oldest'),
-                  icon: Icons.arrow_upward_rounded,
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'Highest ₱',
-                  _sortBy == 'highest',
-                  () => setState(() => _sortBy = 'highest'),
-                ),
-                const SizedBox(width: 6),
-                _buildFilterChip(
-                  'Lowest ₱',
-                  _sortBy == 'lowest',
-                  () => setState(() => _sortBy = 'lowest'),
-                ),
-              ],
             ),
           ),
         ],
