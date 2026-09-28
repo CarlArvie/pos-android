@@ -13,22 +13,24 @@ import '../tables/sync_tables.dart';
 
 part 'pos_dao.g.dart';
 
-@DriftAccessor(tables: [
-  Companies,
-  Stores,
-  CashRegisters,
-  Employees,
-  CashManagements,
-  ProductTypes,
-  Products,
-  Inventories,
-  Customers,
-  CustomerPayments,
-  SalesTransactions,
-  TransactionItems,
-  TenderPayments,
-  SyncQueue,
-])
+@DriftAccessor(
+  tables: [
+    Companies,
+    Stores,
+    CashRegisters,
+    Employees,
+    CashManagements,
+    ProductTypes,
+    Products,
+    Inventories,
+    Customers,
+    CustomerPayments,
+    SalesTransactions,
+    TransactionItems,
+    TenderPayments,
+    SyncQueue,
+  ],
+)
 class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   PosDao(super.db);
 
@@ -36,41 +38,55 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
   // --- CATALOG QUERIES ---
   Stream<List<Product>> watchActiveProducts(String companyId) {
-    return (select(products)
-          ..where((p) => p.companyId.equals(companyId) & p.isActive.equals(true) & p.isDeleted.equals(false)))
+    return (select(products)..where(
+          (p) =>
+              p.companyId.equals(companyId) &
+              p.isActive.equals(true) &
+              p.isDeleted.equals(false),
+        ))
         .watch();
   }
 
   Future<List<Product>> getActiveProducts(String companyId) {
-    return (select(products)
-          ..where((p) => p.companyId.equals(companyId) & p.isActive.equals(true) & p.isDeleted.equals(false)))
+    return (select(products)..where(
+          (p) =>
+              p.companyId.equals(companyId) &
+              p.isActive.equals(true) &
+              p.isDeleted.equals(false),
+        ))
         .get();
   }
 
   Stream<List<ProductType>> watchCategories(String companyId) {
-    return (select(productTypes)
-          ..where((c) => c.companyId.equals(companyId) & c.isDeleted.equals(false)))
+    return (select(productTypes)..where(
+          (c) => c.companyId.equals(companyId) & c.isDeleted.equals(false),
+        ))
         .watch();
   }
 
   // --- INVENTORY QUERIES ---
   Future<Inventory?> getInventoryForProduct(String storeId, String productId) {
-    return (select(inventories)
-          ..where((i) => i.storeId.equals(storeId) & i.productId.equals(productId)))
+    return (select(inventories)..where(
+          (i) => i.storeId.equals(storeId) & i.productId.equals(productId),
+        ))
         .getSingleOrNull();
   }
 
   // --- CUSTOMER QUERIES ---
   Stream<List<Customer>> watchCustomers(String companyId) {
     return (select(customers)
-          ..where((c) => c.companyId.equals(companyId) & c.isDeleted.equals(false))
+          ..where(
+            (c) => c.companyId.equals(companyId) & c.isDeleted.equals(false),
+          )
           ..orderBy([(c) => OrderingTerm.asc(c.fullName)]))
         .watch();
   }
 
   Future<List<Customer>> getCustomers(String companyId) {
     return (select(customers)
-          ..where((c) => c.companyId.equals(companyId) & c.isDeleted.equals(false))
+          ..where(
+            (c) => c.companyId.equals(companyId) & c.isDeleted.equals(false),
+          )
           ..orderBy([(c) => OrderingTerm.asc(c.fullName)]))
         .get();
   }
@@ -102,7 +118,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       updatedAt: Value(now),
     );
     await into(customers).insert(companion);
-    final inserted = await (select(customers)..where((c) => c.id.equals(customerId))).getSingle();
+    final inserted = await (select(
+      customers,
+    )..where((c) => c.id.equals(customerId))).getSingle();
 
     final payload = {
       'id': inserted.id,
@@ -151,15 +169,23 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
         phone: Value(phone),
         email: Value(email),
         address: Value(address),
-        loyaltyTier: loyaltyTier != null ? Value(loyaltyTier) : const Value.absent(),
-        pointsBalance: pointsBalance != null ? Value(pointsBalance) : const Value.absent(),
-        creditLimit: creditLimit != null ? Value(creditLimit) : const Value.absent(),
+        loyaltyTier: loyaltyTier != null
+            ? Value(loyaltyTier)
+            : const Value.absent(),
+        pointsBalance: pointsBalance != null
+            ? Value(pointsBalance)
+            : const Value.absent(),
+        creditLimit: creditLimit != null
+            ? Value(creditLimit)
+            : const Value.absent(),
         dueAmount: dueAmount != null ? Value(dueAmount) : const Value.absent(),
         updatedAt: Value(now),
       ),
     );
 
-    final updated = await (select(customers)..where((c) => c.id.equals(id))).getSingleOrNull();
+    final updated = await (select(
+      customers,
+    )..where((c) => c.id.equals(id))).getSingleOrNull();
     if (updated != null) {
       final payload = {
         'id': updated.id,
@@ -189,13 +215,12 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   Future<void> deleteCustomer(String id) async {
     final now = DateTime.now();
     await (update(customers)..where((c) => c.id.equals(id))).write(
-      CustomersCompanion(
-        isDeleted: const Value(true),
-        updatedAt: Value(now),
-      ),
+      CustomersCompanion(isDeleted: const Value(true), updatedAt: Value(now)),
     );
 
-    final customer = await (select(customers)..where((c) => c.id.equals(id))).getSingleOrNull();
+    final customer = await (select(
+      customers,
+    )..where((c) => c.id.equals(id))).getSingleOrNull();
     if (customer != null) {
       final payload = {
         'id': customer.id,
@@ -241,17 +266,18 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       );
       await into(customerPayments).insert(companion);
 
-      final insertedPayment = await (select(customerPayments)..where((p) => p.id.equals(paymentId))).getSingle();
+      final insertedPayment = await (select(
+        customerPayments,
+      )..where((p) => p.id.equals(paymentId))).getSingle();
 
       // 2. Reduce customer due amount
-      final cust = await (select(customers)..where((c) => c.id.equals(customerId))).getSingleOrNull();
+      final cust = await (select(
+        customers,
+      )..where((c) => c.id.equals(customerId))).getSingleOrNull();
       if (cust != null) {
         final newDue = (cust.dueAmount - amount).clamp(0.0, double.infinity);
         await (update(customers)..where((c) => c.id.equals(customerId))).write(
-          CustomersCompanion(
-            dueAmount: Value(newDue),
-            updatedAt: Value(now),
-          ),
+          CustomersCompanion(dueAmount: Value(newDue), updatedAt: Value(now)),
         );
 
         final custPayload = {
@@ -272,7 +298,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
         try {
           if (Supabase.instance.isInitialized) {
-            await Supabase.instance.client.from('customers').upsert(custPayload);
+            await Supabase.instance.client
+                .from('customers')
+                .upsert(custPayload);
           }
         } catch (_) {}
       }
@@ -289,11 +317,18 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
         'created_at': insertedPayment.createdAt.toIso8601String(),
         'updated_at': insertedPayment.updatedAt.toIso8601String(),
       };
-      await queueSync('customer_payments', insertedPayment.id, 'INSERT', paymentPayload);
+      await queueSync(
+        'customer_payments',
+        insertedPayment.id,
+        'INSERT',
+        paymentPayload,
+      );
 
       try {
         if (Supabase.instance.isInitialized) {
-          await Supabase.instance.client.from('customer_payments').upsert(paymentPayload);
+          await Supabase.instance.client
+              .from('customer_payments')
+              .upsert(paymentPayload);
         }
       } catch (_) {}
 
@@ -329,8 +364,26 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     required double discountTotal,
     required double taxTotal,
     required double grandTotal,
-    required List<({String productId, double quantity, double unitPrice, double discountAmount, double taxAmount})> items,
-    required List<({String paymentMethod, double amount, double amountTendered, double changeAmount, String? refNo})> tenders,
+    required List<
+      ({
+        String productId,
+        double quantity,
+        double unitPrice,
+        double discountAmount,
+        double taxAmount,
+      })
+    >
+    items,
+    required List<
+      ({
+        String paymentMethod,
+        double amount,
+        double amountTendered,
+        double changeAmount,
+        String? refNo,
+      })
+    >
+    tenders,
   }) async {
     final saleId = _uuid.v4();
 
@@ -356,15 +409,23 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       // 2. Insert Line Items & Decrement Stock
       for (final item in items) {
         final itemId = _uuid.v4();
-        final lineSubtotal = (item.quantity * item.unitPrice) - item.discountAmount + item.taxAmount;
+        final lineSubtotal =
+            (item.quantity * item.unitPrice) -
+            item.discountAmount +
+            item.taxAmount;
 
         // Fetch Snapshot Data
-        final prodQuery = await (select(products)..where((p) => p.id.equals(item.productId))).getSingleOrNull();
+        final prodQuery = await (select(
+          products,
+        )..where((p) => p.id.equals(item.productId))).getSingleOrNull();
         String? pName = prodQuery?.productName;
         String? pSku = prodQuery?.sku;
         String? cName;
         if (prodQuery?.productTypeId != null) {
-          final catQuery = await (select(productTypes)..where((c) => c.id.equals(prodQuery!.productTypeId!))).getSingleOrNull();
+          final catQuery =
+              await (select(productTypes)
+                    ..where((c) => c.id.equals(prodQuery!.productTypeId!)))
+                  .getSingleOrNull();
           cName = catQuery?.typeName;
         }
 
@@ -410,7 +471,7 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
               updatedAt: Value(DateTime.now()),
             ),
           );
-          
+
           await queueSync('inventories', inv.id, 'UPDATE', {
             'company_id': inv.companyId,
             'store_id': inv.storeId,
@@ -458,14 +519,19 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
       // 4. Update Customer Credit Due & Loyalty Points
       if (customerId != null) {
-        final cust = await (select(customers)..where((c) => c.id.equals(customerId))).getSingleOrNull();
+        final cust = await (select(
+          customers,
+        )..where((c) => c.id.equals(customerId))).getSingleOrNull();
         if (cust != null) {
-          final earnedPoints = (subtotal / 100).floorToDouble(); // 1 pt per ₱100 spent
+          final earnedPoints = (subtotal / 100)
+              .floorToDouble(); // 1 pt per ₱100 spent
           final newDue = cust.dueAmount + creditTenderTotal;
           final newPoints = cust.pointsBalance + earnedPoints;
           final now = DateTime.now();
 
-          await (update(customers)..where((c) => c.id.equals(customerId))).write(
+          await (update(
+            customers,
+          )..where((c) => c.id.equals(customerId))).write(
             CustomersCompanion(
               dueAmount: Value(newDue),
               pointsBalance: Value(newPoints),
@@ -491,7 +557,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
           try {
             if (Supabase.instance.isInitialized) {
-              await Supabase.instance.client.from('customers').upsert(custPayload);
+              await Supabase.instance.client
+                  .from('customers')
+                  .upsert(custPayload);
             }
           } catch (_) {}
         }
@@ -520,8 +588,13 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   }
 
   // --- Sync Queue Helpers ---
-  
-  Future<void> queueSync(String targetTable, String recordId, String action, Map<String, dynamic> payload) {
+
+  Future<void> queueSync(
+    String targetTable,
+    String recordId,
+    String action,
+    Map<String, dynamic> payload,
+  ) {
     return into(syncQueue).insert(
       SyncQueueCompanion.insert(
         targetTable: targetTable,
@@ -545,12 +618,14 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   }
 
   Future<void> markSyncItemFailed(int id, String error) async {
-    final item = await (select(syncQueue)..where((s) => s.id.equals(id))).getSingle();
+    final item = await (select(
+      syncQueue,
+    )..where((s) => s.id.equals(id))).getSingle();
     final newRetryCount = item.retryCount + 1;
-    
+
     // If it fails more than 5 times, mark as abandoned so it doesn't block the queue forever
     final newStatus = newRetryCount > 5 ? 'abandoned' : 'failed';
-    
+
     await (update(syncQueue)..where((s) => s.id.equals(id))).write(
       SyncQueueCompanion(
         status: Value(newStatus),
@@ -564,7 +639,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     final pendingCount = countAll();
     final query = selectOnly(syncQueue)
       ..addColumns([pendingCount])
-      ..where(syncQueue.status.equals('pending') | syncQueue.status.equals('failed'));
+      ..where(
+        syncQueue.status.equals('pending') | syncQueue.status.equals('failed'),
+      );
     return query.map((row) => row.read(pendingCount) ?? 0).watchSingle();
   }
 
@@ -572,7 +649,10 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     final failedCount = countAll();
     final query = selectOnly(syncQueue)
       ..addColumns([failedCount])
-      ..where(syncQueue.status.equals('failed') | syncQueue.status.equals('abandoned'));
+      ..where(
+        syncQueue.status.equals('failed') |
+            syncQueue.status.equals('abandoned'),
+      );
     return query.map((row) => row.read(failedCount) ?? 0).watchSingle();
   }
 
@@ -591,7 +671,10 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   }
 
   // --- CASH DRAWER SHIFTS ---
-  Stream<CashManagement?> watchActiveShift(String registerId, {String? employeeId}) {
+  Stream<CashManagement?> watchActiveShift(
+    String registerId, {
+    String? employeeId,
+  }) {
     return (select(cashManagements)
           ..where((c) {
             final regMatch = c.cashRegisterId.equals(registerId);
@@ -606,7 +689,10 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
         .watchSingleOrNull();
   }
 
-  Future<CashManagement?> getActiveShift(String registerId, {String? employeeId}) {
+  Future<CashManagement?> getActiveShift(
+    String registerId, {
+    String? employeeId,
+  }) {
     return (select(cashManagements)
           ..where((c) {
             final regMatch = c.cashRegisterId.equals(registerId);
@@ -680,10 +766,14 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   }
 
   Future<ShiftSalesSummary> getShiftSalesSummary(String shiftId) async {
-    final shift = await (select(cashManagements)..where((c) => c.id.equals(shiftId))).getSingleOrNull();
+    final shift = await (select(
+      cashManagements,
+    )..where((c) => c.id.equals(shiftId))).getSingleOrNull();
     final openingBalance = shift?.openingBalance ?? 0.0;
 
-    final txs = await (select(salesTransactions)..where((s) => s.cashManagementId.equals(shiftId))).get();
+    final txs = await (select(
+      salesTransactions,
+    )..where((s) => s.cashManagementId.equals(shiftId))).get();
     if (txs.isEmpty) {
       return ShiftSalesSummary(
         openingBalance: openingBalance,
@@ -695,7 +785,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     }
 
     final txIds = txs.map((t) => t.id).toList();
-    final tenders = await (select(tenderPayments)..where((t) => t.salesTransactionId.isIn(txIds))).get();
+    final tenders = await (select(
+      tenderPayments,
+    )..where((t) => t.salesTransactionId.isIn(txIds))).get();
 
     double cashSales = 0.0;
     double nonCashSales = 0.0;
@@ -735,7 +827,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       ),
     );
 
-    final shift = await (select(cashManagements)..where((c) => c.id.equals(shiftId))).getSingleOrNull();
+    final shift = await (select(
+      cashManagements,
+    )..where((c) => c.id.equals(shiftId))).getSingleOrNull();
 
     final payload = {
       'close_time': now.toIso8601String(),
@@ -769,15 +863,23 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   // --- TRANSACTION DETAIL & REPORTING QUERIES ---
 
   Future<TransactionDetail?> getTransactionDetail(String transactionId) async {
-    final tx = await (select(salesTransactions)..where((t) => t.id.equals(transactionId))).getSingleOrNull();
+    final tx = await (select(
+      salesTransactions,
+    )..where((t) => t.id.equals(transactionId))).getSingleOrNull();
     if (tx == null) return null;
 
-    final itemRows = await (select(transactionItems)..where((i) => i.salesTransactionId.equals(transactionId))).get();
-    final tenderRows = await (select(tenderPayments)..where((t) => t.salesTransactionId.equals(transactionId))).get();
+    final itemRows = await (select(
+      transactionItems,
+    )..where((i) => i.salesTransactionId.equals(transactionId))).get();
+    final tenderRows = await (select(
+      tenderPayments,
+    )..where((t) => t.salesTransactionId.equals(transactionId))).get();
 
     String? customerName;
     if (tx.customerId != null) {
-      final cust = await (select(customers)..where((c) => c.id.equals(tx.customerId!))).getSingleOrNull();
+      final cust = await (select(
+        customers,
+      )..where((c) => c.id.equals(tx.customerId!))).getSingleOrNull();
       customerName = cust?.fullName;
     }
 
@@ -785,7 +887,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     for (final item in itemRows) {
       Product? prod;
       if (item.productId != null) {
-        prod = await (select(products)..where((p) => p.id.equals(item.productId!))).getSingleOrNull();
+        prod = await (select(
+          products,
+        )..where((p) => p.id.equals(item.productId!))).getSingleOrNull();
       }
       prod ??= Product(
         id: item.productId ?? 'deleted',
@@ -830,10 +934,12 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       query = query..where((t) => t.employeeId.equals(employeeId));
     }
     if (startDate != null) {
-      query = query..where((t) => t.transactionDatetime.isBiggerOrEqualValue(startDate));
+      query = query
+        ..where((t) => t.transactionDatetime.isBiggerOrEqualValue(startDate));
     }
     if (endDate != null) {
-      query = query..where((t) => t.transactionDatetime.isSmallerOrEqualValue(endDate));
+      query = query
+        ..where((t) => t.transactionDatetime.isSmallerOrEqualValue(endDate));
     }
     query = query..orderBy([(t) => OrderingTerm.desc(t.transactionDatetime)]);
 
@@ -841,11 +947,22 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     if (txs.isEmpty) return [];
 
     final txIds = txs.map((t) => t.id).toList();
-    final allItems = await (select(transactionItems)..where((i) => i.salesTransactionId.isIn(txIds))).get();
-    final allTenders = await (select(tenderPayments)..where((t) => t.salesTransactionId.isIn(txIds))).get();
+    final allItems = await (select(
+      transactionItems,
+    )..where((i) => i.salesTransactionId.isIn(txIds))).get();
+    final allTenders = await (select(
+      tenderPayments,
+    )..where((t) => t.salesTransactionId.isIn(txIds))).get();
 
-    final prodIds = allItems.map((i) => i.productId).where((id) => id != null).cast<String>().toSet().toList();
-    final allProds = await (select(products)..where((p) => p.id.isIn(prodIds))).get();
+    final prodIds = allItems
+        .map((i) => i.productId)
+        .where((id) => id != null)
+        .cast<String>()
+        .toSet()
+        .toList();
+    final allProds = await (select(
+      products,
+    )..where((p) => p.id.isIn(prodIds))).get();
     final prodMap = {for (final p in allProds) p.id: p};
 
     final itemsByTx = <String, List<TransactionLineItemDetail>>{};
@@ -868,9 +985,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       );
-      itemsByTx.putIfAbsent(item.salesTransactionId, () => []).add(
-        TransactionLineItemDetail(item: item, product: prod),
-      );
+      itemsByTx
+          .putIfAbsent(item.salesTransactionId, () => [])
+          .add(TransactionLineItemDetail(item: item, product: prod));
     }
 
     final tendersByTx = <String, List<TenderPayment>>{};
@@ -881,8 +998,12 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     final List<TransactionDetail> results = [];
     for (final tx in txs) {
       final txTenders = tendersByTx[tx.id] ?? [];
-      if (paymentMethod != null && paymentMethod.isNotEmpty && paymentMethod != 'all') {
-        final hasMethod = txTenders.any((t) => t.paymentMethod.toLowerCase() == paymentMethod.toLowerCase());
+      if (paymentMethod != null &&
+          paymentMethod.isNotEmpty &&
+          paymentMethod != 'all') {
+        final hasMethod = txTenders.any(
+          (t) => t.paymentMethod.toLowerCase() == paymentMethod.toLowerCase(),
+        );
         if (!hasMethod) continue;
       }
 
@@ -940,7 +1061,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       updatedAt: Value(now),
     );
     await db.into(db.expenses).insert(companion);
-    return (db.select(db.expenses)..where((e) => e.id.equals(expId))).getSingle();
+    return (db.select(
+      db.expenses,
+    )..where((e) => e.id.equals(expId))).getSingle();
   }
 
   Future<void> deleteExpense(String id) async {
@@ -956,12 +1079,17 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     var txQuery = select(salesTransactions)
       ..where((t) => t.status.equals('completed') & t.isDeleted.equals(false));
     if (startDate != null) {
-      txQuery = txQuery..where((t) => t.transactionDatetime.isBiggerOrEqualValue(startDate));
+      txQuery = txQuery
+        ..where((t) => t.transactionDatetime.isBiggerOrEqualValue(startDate));
     }
     if (endDate != null) {
-      txQuery = txQuery..where((t) => t.transactionDatetime.isSmallerOrEqualValue(endDate));
+      txQuery = txQuery
+        ..where((t) => t.transactionDatetime.isSmallerOrEqualValue(endDate));
     }
-    final txs = await (txQuery..orderBy([(t) => OrderingTerm.desc(t.transactionDatetime)])).get();
+    final txs =
+        await (txQuery
+              ..orderBy([(t) => OrderingTerm.desc(t.transactionDatetime)]))
+            .get();
 
     // 2. Fetch expenses in range
     final expList = await getExpenses(startDate: startDate, endDate: endDate);
@@ -993,20 +1121,88 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     }
 
     final txIds = txs.map((t) => t.id).toList();
-    final allItems = await (select(transactionItems)..where((i) => i.salesTransactionId.isIn(txIds))).get();
-    final allTenders = await (select(tenderPayments)..where((t) => t.salesTransactionId.isIn(txIds))).get();
 
-    final allProducts = await select(products).get();
-    final prodMap = {for (final p in allProducts) p.id: p};
+    // 1. Chunked query for transaction items and tender payments (max 500 per batch)
+    // Prevents SQLite "too many SQL variables" (code 1 / 787) when transaction count > 999
+    final allItems = <TransactionItem>[];
+    final allTenders = <TenderPayment>[];
+    const chunkSize = 500;
+    for (var i = 0; i < txIds.length; i += chunkSize) {
+      final end = (i + chunkSize < txIds.length) ? i + chunkSize : txIds.length;
+      final chunk = txIds.sublist(i, end);
+      final results = await Future.wait([
+        (select(
+          transactionItems,
+        )..where((t) => t.salesTransactionId.isIn(chunk))).get(),
+        (select(
+          tenderPayments,
+        )..where((t) => t.salesTransactionId.isIn(chunk))).get(),
+      ]);
+      allItems.addAll(results[0] as List<TransactionItem>);
+      allTenders.addAll(results[1] as List<TenderPayment>);
+    }
+
+    // 2. Fetch only the referenced products, customers, and employees (avoids loading entire catalogs)
+    final usedProductIds = allItems
+        .map((i) => i.productId)
+        .whereType<String>()
+        .toSet()
+        .toList();
+    final usedCustomerIds = txs
+        .map((t) => t.customerId)
+        .whereType<String>()
+        .toSet()
+        .toList();
+    final usedEmployeeIds = txs
+        .map((t) => t.employeeId)
+        .whereType<String>()
+        .toSet()
+        .toList();
+
+    final Map<String, Product> prodMap = {};
+    for (var i = 0; i < usedProductIds.length; i += chunkSize) {
+      final end = (i + chunkSize < usedProductIds.length)
+          ? i + chunkSize
+          : usedProductIds.length;
+      final chunk = usedProductIds.sublist(i, end);
+      final prods = await (select(
+        products,
+      )..where((p) => p.id.isIn(chunk))).get();
+      for (final p in prods) {
+        prodMap[p.id] = p;
+      }
+    }
 
     final allTypes = await select(productTypes).get();
     final catMap = {for (final c in allTypes) c.id: c.typeName};
 
-    final allCustomers = await select(customers).get();
-    final custMap = {for (final c in allCustomers) c.id: c};
+    final Map<String, Customer> custMap = {};
+    for (var i = 0; i < usedCustomerIds.length; i += chunkSize) {
+      final end = (i + chunkSize < usedCustomerIds.length)
+          ? i + chunkSize
+          : usedCustomerIds.length;
+      final chunk = usedCustomerIds.sublist(i, end);
+      final custs = await (select(
+        customers,
+      )..where((c) => c.id.isIn(chunk))).get();
+      for (final c in custs) {
+        custMap[c.id] = c;
+      }
+    }
 
-    final allEmployees = await select(employees).get();
-    final empMap = {for (final e in allEmployees) e.id: e};
+    final Map<String, Employee> empMap = {};
+    for (var i = 0; i < usedEmployeeIds.length; i += chunkSize) {
+      final end = (i + chunkSize < usedEmployeeIds.length)
+          ? i + chunkSize
+          : usedEmployeeIds.length;
+      final chunk = usedEmployeeIds.sublist(i, end);
+      final emps = await (select(
+        employees,
+      )..where((e) => e.id.isIn(chunk))).get();
+      for (final e in emps) {
+        empMap[e.id] = e;
+      }
+    }
 
     // Aggregate overall metrics
     double grossSales = 0.0;
@@ -1023,22 +1219,25 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
     // Aggregate Product & Category Sales
     double totalCogs = 0.0;
-    final Map<String, ({
-      String productId,
-      String productName,
-      String? variantName,
-      String? categoryName,
-      double qty,
-      double revenue,
-      double cost,
-    })> productAgg = {};
+    final Map<
+      String,
+      ({
+        String productId,
+        String productName,
+        String? variantName,
+        String? categoryName,
+        double qty,
+        double revenue,
+        double cost,
+      })
+    >
+    productAgg = {};
 
-    final Map<String, ({
-      String categoryId,
-      String categoryName,
-      double qty,
-      double revenue,
-    })> categoryAgg = {};
+    final Map<
+      String,
+      ({String categoryId, String categoryName, double qty, double revenue})
+    >
+    categoryAgg = {};
 
     for (final item in allItems) {
       final prod = prodMap[item.productId];
@@ -1047,7 +1246,8 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       totalCogs += lineCost;
 
       final pId = item.productId ?? 'deleted_${item.id}';
-      final pName = item.productName ?? prod?.productName ?? 'Unknown (Deleted)';
+      final pName =
+          item.productName ?? prod?.productName ?? 'Unknown (Deleted)';
       final vName = prod?.variantName;
       final cId = prod?.productTypeId ?? 'uncategorized';
       final cName = item.categoryName ?? catMap[cId] ?? 'General';
@@ -1107,8 +1307,7 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
         totalCost: p.cost,
         profit: profit,
       );
-    }).toList()
-      ..sort((a, b) => b.quantitySold.compareTo(a.quantitySold));
+    }).toList()..sort((a, b) => b.quantitySold.compareTo(a.quantitySold));
 
     final topCategories = categoryAgg.values.map((c) {
       final share = netSales > 0 ? (c.revenue / netSales) * 100 : 0.0;
@@ -1119,8 +1318,7 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
         totalRevenue: c.revenue,
         sharePercentage: share,
       );
-    }).toList()
-      ..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
+    }).toList()..sort((a, b) => b.totalRevenue.compareTo(a.totalRevenue));
 
     // Aggregate Payment Modes
     final Map<String, ({int count, double total})> tenderAgg = {};
@@ -1130,25 +1328,33 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       totalTendered += tender.amount;
       if (tenderAgg.containsKey(method)) {
         final existing = tenderAgg[method]!;
-        tenderAgg[method] = (count: existing.count + 1, total: existing.total + tender.amount);
+        tenderAgg[method] = (
+          count: existing.count + 1,
+          total: existing.total + tender.amount,
+        );
       } else {
         tenderAgg[method] = (count: 1, total: tender.amount);
       }
     }
 
     final paymentModes = tenderAgg.entries.map((e) {
-      final share = totalTendered > 0 ? (e.value.total / totalTendered) * 100 : 0.0;
+      final share = totalTendered > 0
+          ? (e.value.total / totalTendered) * 100
+          : 0.0;
       return PaymentModeStat(
         method: e.key,
         count: e.value.count,
         totalAmount: e.value.total,
         sharePercentage: share,
       );
-    }).toList()
-      ..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
+    }).toList()..sort((a, b) => b.totalAmount.compareTo(a.totalAmount));
 
     // Aggregate Top Customers
-    final Map<String, ({String? customerId, String name, String tier, int orders, double spend})> customerAgg = {};
+    final Map<
+      String,
+      ({String? customerId, String name, String tier, int orders, double spend})
+    >
+    customerAgg = {};
     for (final tx in txs) {
       final cId = tx.customerId;
       if (cId != null && custMap.containsKey(cId)) {
@@ -1195,17 +1401,26 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       }
     }
 
-    final topCustomers = customerAgg.values.map((c) => CustomerSalesStat(
-      customerId: c.customerId,
-      customerName: c.name,
-      loyaltyTier: c.tier,
-      ordersCount: c.orders,
-      totalSpend: c.spend,
-    )).toList()
-      ..sort((a, b) => b.totalSpend.compareTo(a.totalSpend));
+    final topCustomers =
+        customerAgg.values
+            .map(
+              (c) => CustomerSalesStat(
+                customerId: c.customerId,
+                customerName: c.name,
+                loyaltyTier: c.tier,
+                ordersCount: c.orders,
+                totalSpend: c.spend,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.totalSpend.compareTo(a.totalSpend));
 
     // Aggregate Staff / Sold By
-    final Map<String, ({String? empId, String name, String position, int count, double sales})> staffAgg = {};
+    final Map<
+      String,
+      ({String? empId, String name, String position, int count, double sales})
+    >
+    staffAgg = {};
     for (final tx in txs) {
       final eId = tx.employeeId;
       if (eId != null && empMap.containsKey(eId)) {
@@ -1253,17 +1468,24 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       }
     }
 
-    final soldBy = staffAgg.values.map((s) => StaffSalesStat(
-      employeeId: s.empId,
-      employeeName: s.name,
-      position: s.position,
-      receiptCount: s.count,
-      totalSales: s.sales,
-    )).toList()
-      ..sort((a, b) => b.totalSales.compareTo(a.totalSales));
+    final soldBy =
+        staffAgg.values
+            .map(
+              (s) => StaffSalesStat(
+                employeeId: s.empId,
+                employeeName: s.name,
+                position: s.position,
+                receiptCount: s.count,
+                totalSales: s.sales,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.totalSales.compareTo(a.totalSales));
 
     final grossProfit = netSales - totalCogs;
-    final grossMarginPercent = netSales > 0 ? (grossProfit / netSales) * 100 : 0.0;
+    final grossMarginPercent = netSales > 0
+        ? (grossProfit / netSales) * 100
+        : 0.0;
     final netProfit = grossProfit - totalExpenses;
     final netMarginPercent = netSales > 0 ? (netProfit / netSales) * 100 : 0.0;
     final totalReceipts = txs.length;
@@ -1295,8 +1517,12 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
   // --- AUTH & DEVICE PROVISIONING QUERIES ---
   Future<Employee?> getEmployeeByPin(String storeId, String pinCode) {
-    return (select(employees)
-          ..where((e) => e.storeId.equals(storeId) & e.pinCode.equals(pinCode) & e.isActive.equals(true)))
+    return (select(employees)..where(
+          (e) =>
+              e.storeId.equals(storeId) &
+              e.pinCode.equals(pinCode) &
+              e.isActive.equals(true),
+        ))
         .getSingleOrNull();
   }
 
@@ -1309,7 +1535,7 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
   Future<void> addEmployee(EmployeesCompanion employee) async {
     final inserted = await into(employees).insertReturning(employee);
-    
+
     // Queue sync for the new employee
     await queueSync('employees', inserted.id, 'INSERT', {
       'id': inserted.id,
@@ -1326,48 +1552,55 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   }
 
   Future<void> updateEmployeePin(String employeeId, String newPin) async {
-    await (update(employees)..where((e) => e.id.equals(employeeId)))
-        .write(EmployeesCompanion(pinCode: Value(newPin)));
-        
-    await queueSync('employees', employeeId, 'UPDATE', {
-      'pin_code': newPin,
-    });
+    await (update(employees)..where((e) => e.id.equals(employeeId))).write(
+      EmployeesCompanion(pinCode: Value(newPin)),
+    );
+
+    await queueSync('employees', employeeId, 'UPDATE', {'pin_code': newPin});
   }
 
   Future<void> updateEmployeeRole(String employeeId, String newPosition) async {
-    await (update(employees)..where((e) => e.id.equals(employeeId)))
-        .write(EmployeesCompanion(position: Value(newPosition)));
-        
+    await (update(employees)..where((e) => e.id.equals(employeeId))).write(
+      EmployeesCompanion(position: Value(newPosition)),
+    );
+
     await queueSync('employees', employeeId, 'UPDATE', {
       'position': newPosition,
     });
   }
 
   Future<void> updateEmployeeActive(String employeeId, bool isActive) async {
-    await (update(employees)..where((e) => e.id.equals(employeeId)))
-        .write(EmployeesCompanion(isActive: Value(isActive)));
-        
-    await queueSync('employees', employeeId, 'UPDATE', {
-      'is_active': isActive,
-    });
+    await (update(employees)..where((e) => e.id.equals(employeeId))).write(
+      EmployeesCompanion(isActive: Value(isActive)),
+    );
+
+    await queueSync('employees', employeeId, 'UPDATE', {'is_active': isActive});
   }
 
   Future<Company?> getCompany(String companyId) {
-    return (select(companies)..where((c) => c.id.equals(companyId))).getSingleOrNull();
+    return (select(
+      companies,
+    )..where((c) => c.id.equals(companyId))).getSingleOrNull();
   }
 
   Future<Store?> getStore(String storeId) {
-    return (select(stores)..where((s) => s.id.equals(storeId))).getSingleOrNull();
+    return (select(
+      stores,
+    )..where((s) => s.id.equals(storeId))).getSingleOrNull();
   }
 
   Future<CashRegister?> getRegister(String registerId) {
-    return (select(cashRegisters)..where((r) => r.id.equals(registerId))).getSingleOrNull();
+    return (select(
+      cashRegisters,
+    )..where((r) => r.id.equals(registerId))).getSingleOrNull();
   }
 
   Future<void> updateCompany(CompaniesCompanion company) async {
     await transaction(() async {
-      await (update(companies)..where((c) => c.id.equals(company.id.value))).write(company);
-      
+      await (update(
+        companies,
+      )..where((c) => c.id.equals(company.id.value))).write(company);
+
       final updated = await getCompany(company.id.value);
       if (updated != null) {
         await queueSync('companies', updated.id, 'UPDATE', updated.toJson());
@@ -1377,7 +1610,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
   Future<void> updateStore(StoresCompanion store) async {
     await transaction(() async {
-      await (update(stores)..where((s) => s.id.equals(store.id.value))).write(store);
+      await (update(
+        stores,
+      )..where((s) => s.id.equals(store.id.value))).write(store);
 
       final updated = await getStore(store.id.value);
       if (updated != null) {
@@ -1387,13 +1622,14 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
   }
 
   Future<List<CashRegister>> getRegistersForStore(String storeId) {
-    return (select(cashRegisters)..where((r) => r.storeId.equals(storeId))).get();
+    return (select(
+      cashRegisters,
+    )..where((r) => r.storeId.equals(storeId))).get();
   }
 
   Future<List<Store>> getStores(String companyId) {
     return (select(stores)..where((s) => s.companyId.equals(companyId))).get();
   }
-
 
   Future<void> createStoreWithDefaults({
     required String companyId,
@@ -1427,7 +1663,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       );
 
       // 3. Initialize Inventory for all products
-      final allProducts = await (select(products)..where((p) => p.companyId.equals(companyId))).get();
+      final allProducts = await (select(
+        products,
+      )..where((p) => p.companyId.equals(companyId))).get();
       for (final p in allProducts) {
         await into(inventories).insert(
           InventoriesCompanion.insert(
@@ -1442,6 +1680,7 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       }
     });
   }
+
   Future<bool> hasAnyCompany() async {
     final countExp = companies.id.count();
     final query = selectOnly(companies)..addColumns([countExp]);
@@ -1481,9 +1720,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
   Future<void> cleanOrphanedInventories(String activeStoreId) async {
     if (activeStoreId.isNotEmpty && activeStoreId != 'default-store-001') {
-      await (delete(attachedDatabase.inventories)
-            ..where((i) => i.storeId.equals('default-store-001')))
-          .go();
+      await (delete(
+        attachedDatabase.inventories,
+      )..where((i) => i.storeId.equals('default-store-001'))).go();
     }
   }
 
@@ -1611,7 +1850,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
 
       // Upsert Products
       for (final p in products) {
-        final existing = await (select(this.products)..where((tbl) => tbl.id.equals(p['id']))).getSingleOrNull();
+        final existing = await (select(
+          this.products,
+        )..where((tbl) => tbl.id.equals(p['id']))).getSingleOrNull();
         await into(this.products).insert(
           ProductsCompanion.insert(
             id: p['id'],
@@ -1627,7 +1868,11 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
             barcode: Value(p['barcode']),
             taxPercent: Value(_toDouble(p['tax_percent'])),
             trackExpiry: Value(p['track_expiry'] ?? false),
-            expiryDate: Value(p['expiry_date'] != null ? DateTime.tryParse(p['expiry_date']) : null),
+            expiryDate: Value(
+              p['expiry_date'] != null
+                  ? DateTime.tryParse(p['expiry_date'])
+                  : null,
+            ),
             imagePath: Value(existing?.imagePath),
             imageUrl: Value(p['image_url']),
             notes: Value(p['notes']),
@@ -1668,8 +1913,16 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
             pointsBalance: Value(_toDouble(c['points_balance'])),
             dueAmount: Value(_toDouble(c['due_amount'])),
             creditLimit: Value(_toDouble(c['credit_limit'], 5000.0)),
-            createdAt: Value(c['created_at'] != null ? DateTime.parse(c['created_at']) : DateTime.now()),
-            updatedAt: Value(c['updated_at'] != null ? DateTime.parse(c['updated_at']) : DateTime.now()),
+            createdAt: Value(
+              c['created_at'] != null
+                  ? DateTime.parse(c['created_at'])
+                  : DateTime.now(),
+            ),
+            updatedAt: Value(
+              c['updated_at'] != null
+                  ? DateTime.parse(c['updated_at'])
+                  : DateTime.now(),
+            ),
             isDeleted: Value(c['is_deleted'] ?? false),
           ),
           mode: InsertMode.insertOrReplace,
@@ -1687,8 +1940,16 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
             amount: _toDouble(cp['amount']),
             paymentMethod: cp['payment_method'],
             notes: Value(cp['notes']),
-            createdAt: Value(cp['created_at'] != null ? DateTime.parse(cp['created_at']) : DateTime.now()),
-            updatedAt: Value(cp['updated_at'] != null ? DateTime.parse(cp['updated_at']) : DateTime.now()),
+            createdAt: Value(
+              cp['created_at'] != null
+                  ? DateTime.parse(cp['created_at'])
+                  : DateTime.now(),
+            ),
+            updatedAt: Value(
+              cp['updated_at'] != null
+                  ? DateTime.parse(cp['updated_at'])
+                  : DateTime.now(),
+            ),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -1703,15 +1964,39 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
             storeId: cm['store_id'],
             cashRegisterId: cm['cash_register_id'],
             employeeId: Value(cm['employee_id']),
-            openTime: Value(cm['open_time'] != null ? (DateTime.tryParse(cm['open_time']) ?? DateTime.now()) : DateTime.now()),
-            closeTime: Value(cm['close_time'] != null ? DateTime.tryParse(cm['close_time']) : null),
+            openTime: Value(
+              cm['open_time'] != null
+                  ? (DateTime.tryParse(cm['open_time']) ?? DateTime.now())
+                  : DateTime.now(),
+            ),
+            closeTime: Value(
+              cm['close_time'] != null
+                  ? DateTime.tryParse(cm['close_time'])
+                  : null,
+            ),
             openingBalance: Value(_toDouble(cm['opening_balance'])),
-            closingBalance: Value(cm['closing_balance'] != null ? _toDouble(cm['closing_balance']) : null),
-            expectedBalance: Value(cm['expected_balance'] != null ? _toDouble(cm['expected_balance']) : null),
+            closingBalance: Value(
+              cm['closing_balance'] != null
+                  ? _toDouble(cm['closing_balance'])
+                  : null,
+            ),
+            expectedBalance: Value(
+              cm['expected_balance'] != null
+                  ? _toDouble(cm['expected_balance'])
+                  : null,
+            ),
             status: Value(cm['status'] ?? 'open'),
             notes: Value(cm['notes']),
-            createdAt: Value(cm['created_at'] != null ? (DateTime.tryParse(cm['created_at']) ?? DateTime.now()) : DateTime.now()),
-            updatedAt: Value(cm['updated_at'] != null ? (DateTime.tryParse(cm['updated_at']) ?? DateTime.now()) : DateTime.now()),
+            createdAt: Value(
+              cm['created_at'] != null
+                  ? (DateTime.tryParse(cm['created_at']) ?? DateTime.now())
+                  : DateTime.now(),
+            ),
+            updatedAt: Value(
+              cm['updated_at'] != null
+                  ? (DateTime.tryParse(cm['updated_at']) ?? DateTime.now())
+                  : DateTime.now(),
+            ),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -1728,7 +2013,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
             employeeId: Value(tx['employee_id']),
             customerId: Value(tx['customer_id']),
             invoiceNo: tx['invoice_no'],
-            transactionDatetime: Value(DateTime.parse(tx['transaction_datetime'])),
+            transactionDatetime: Value(
+              DateTime.parse(tx['transaction_datetime']),
+            ),
             subtotal: Value(_toDouble(tx['subtotal'])),
             discountTotal: Value(_toDouble(tx['discount_total'])),
             taxTotal: Value(_toDouble(tx['tax_total'])),
@@ -1778,6 +2065,7 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
       }
     });
   }
+
   Future<Map<String, String>> onboardNewCompany({
     required String companyName,
     required String storeName,
@@ -1796,19 +2084,22 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     try {
       if (Supabase.instance.isInitialized) {
         final supabase = Supabase.instance.client;
-        await supabase.rpc('create_new_company', params: {
-          'c_id': companyId,
-          'c_name': companyName,
-          's_id': storeId,
-          's_name': storeName,
-          'r_id': registerId,
-          'e_id': employeeId,
-          'e_first': firstName,
-          'e_last': lastName,
-          'e_pin': pinCode ?? '',
-          'e_email': email,
-          'e_profile_id': profileId,
-        });
+        await supabase.rpc(
+          'create_new_company',
+          params: {
+            'c_id': companyId,
+            'c_name': companyName,
+            's_id': storeId,
+            's_name': storeName,
+            'r_id': registerId,
+            'e_id': employeeId,
+            'e_first': firstName,
+            'e_last': lastName,
+            'e_pin': pinCode ?? '',
+            'e_email': email,
+            'e_profile_id': profileId,
+          },
+        );
       }
     } catch (e) {
       throw Exception('Failed to create business in the cloud: $e');
@@ -1817,12 +2108,9 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     // 2. Save locally
     await transaction(() async {
       // Create Company
-      await into(companies).insert(
-        CompaniesCompanion.insert(
-          id: companyId,
-          name: companyName,
-        ),
-      );
+      await into(
+        companies,
+      ).insert(CompaniesCompanion.insert(id: companyId, name: companyName));
 
       // 2. Create First Store
       await into(stores).insert(
@@ -1867,7 +2155,6 @@ class PosDao extends DatabaseAccessor<AppDatabase> with _$PosDaoMixin {
     };
   }
 }
-
 
 class ShiftSalesSummary {
   final double openingBalance;
@@ -1940,7 +2227,8 @@ class ProductSalesStat {
     required this.profit,
   });
 
-  double get profitMarginPercent => totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0.0;
+  double get profitMarginPercent =>
+      totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0.0;
 }
 
 class CategorySalesStat {
@@ -2021,7 +2309,8 @@ class StaffSalesStat {
     required this.totalSales,
   });
 
-  double get averageTicket => receiptCount > 0 ? totalSales / receiptCount : 0.0;
+  double get averageTicket =>
+      receiptCount > 0 ? totalSales / receiptCount : 0.0;
 }
 
 class SalesReportData {
