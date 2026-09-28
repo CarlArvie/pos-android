@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/device_prefs.dart';
 import '../../../data/local/database.dart';
 import '../../../data/local/daos/pos_dao.dart';
 import '../../../core/permissions/permission_service.dart';
@@ -9,11 +10,7 @@ class AddExpenseDialog extends StatefulWidget {
   final AppDatabase db;
   final VoidCallback? onExpenseAdded;
 
-  const AddExpenseDialog({
-    super.key,
-    required this.db,
-    this.onExpenseAdded,
-  });
+  const AddExpenseDialog({super.key, required this.db, this.onExpenseAdded});
 
   @override
   State<AddExpenseDialog> createState() => _AddExpenseDialogState();
@@ -58,11 +55,15 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
   }
 
   Future<void> _saveExpense() async {
-    final hasPermission = PermissionService.instance.hasPermission(PosPermissions.reportsExpenses);
+    final hasPermission = PermissionService.instance.hasPermission(
+      PosPermissions.reportsExpenses,
+    );
     if (!hasPermission) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to record operating expenses.'),
+          content: Text(
+            'Access Denied: You do not have permission to record operating expenses.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -74,7 +75,9 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
     final amount = double.tryParse(_amountController.text.trim());
     if (amount == null || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid positive expense amount')),
+        const SnackBar(
+          content: Text('Please enter a valid positive expense amount'),
+        ),
       );
       return;
     }
@@ -83,11 +86,13 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
     try {
       final posDao = PosDao(widget.db);
       await posDao.addExpense(
-        companyId: 'default-company-001',
-        storeId: 'default-store-001',
+        companyId: DevicePrefs.companyId ?? 'default-company-001',
+        storeId: DevicePrefs.storeId ?? 'default-store-001',
         category: _category,
         amount: amount,
-        description: _descriptionController.text.trim().isEmpty ? null : _descriptionController.text.trim(),
+        description: _descriptionController.text.trim().isEmpty
+            ? null
+            : _descriptionController.text.trim(),
         createdAt: _selectedDate,
       );
 
@@ -96,7 +101,9 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
         Navigator.of(context).pop(true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Expense of ₱${amount.toStringAsFixed(2)} recorded successfully.'),
+            content: Text(
+              'Expense of ₱${amount.toStringAsFixed(2)} recorded successfully.',
+            ),
             backgroundColor: AppTheme.primaryColor,
           ),
         );
@@ -104,20 +111,24 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save expense: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save expense: $e')));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasPermission = PermissionService.instance.hasPermission(PosPermissions.reportsExpenses);
+    final hasPermission = PermissionService.instance.hasPermission(
+      PosPermissions.reportsExpenses,
+    );
     if (!hasPermission) {
       return AlertDialog(
         title: const Text('Access Denied'),
-        content: const Text('You do not have permission to record store expenses.'),
+        content: const Text(
+          'You do not have permission to record store expenses.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -171,7 +182,10 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                           ),
                           Text(
                             'Deducted from sales to compute Net Profit',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
                         ],
                       ),
@@ -182,7 +196,11 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                     ),
                   ],
                 ),
-                const Divider(height: 24, thickness: 1, color: AppTheme.cardBorderColor),
+                const Divider(
+                  height: 24,
+                  thickness: 1,
+                  color: AppTheme.cardBorderColor,
+                ),
 
                 // Category Dropdown
                 DropdownButtonFormField<String>(
@@ -192,12 +210,18 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Expense Category *',
                     prefixIcon: Icon(Icons.category_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
+                    ),
                   ),
                   items: _categories.map((cat) {
                     return DropdownMenuItem(
                       value: cat,
-                      child: Text(cat, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        cat,
+                        style: const TextStyle(fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   }).toList(),
                   onChanged: (val) {
@@ -210,17 +234,25 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                 TextFormField(
                   key: const Key('expense_amount_input'),
                   controller: _amountController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(
                     labelText: 'Expense Amount (₱) *',
                     hintText: 'e.g. 1500.00',
                     prefixIcon: Icon(Icons.payments_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
+                    ),
                   ),
                   validator: (val) {
-                    if (val == null || val.trim().isEmpty) return 'Amount is required';
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Amount is required';
+                    }
                     final parsed = double.tryParse(val.trim());
-                    if (parsed == null || parsed <= 0) return 'Enter a valid amount > 0';
+                    if (parsed == null || parsed <= 0) {
+                      return 'Enter a valid amount > 0';
+                    }
                     return null;
                   },
                 ),
@@ -231,27 +263,50 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                   onTap: _pickDate,
                   borderRadius: BorderRadius.circular(10),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade400),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today_rounded, size: 18, color: Colors.grey),
+                        const Icon(
+                          Icons.calendar_today_rounded,
+                          size: 18,
+                          color: Colors.grey,
+                        ),
                         const SizedBox(width: 10),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Expense Date', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            const Text(
+                              'Expense Date',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey,
+                              ),
+                            ),
                             Text(
                               '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
                         const Spacer(),
-                        const Text('Change', style: TextStyle(color: AppTheme.accentColor, fontSize: 12, fontWeight: FontWeight.bold)),
+                        const Text(
+                          'Change',
+                          style: TextStyle(
+                            color: AppTheme.accentColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -267,7 +322,9 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                     labelText: 'Description / Remarks (Optional)',
                     hintText: 'e.g. Meralco electric bill payment for store',
                     prefixIcon: Icon(Icons.notes_rounded),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -286,14 +343,22 @@ class _AddExpenseDialogState extends State<AddExpenseDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red.shade700,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                       ),
                       icon: _isSaving
                           ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
                             )
                           : const Icon(Icons.check_rounded, size: 18),
                       label: const Text(

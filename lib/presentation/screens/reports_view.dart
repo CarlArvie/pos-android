@@ -23,12 +23,44 @@ class _ReportsViewState extends State<ReportsView> {
   int _refreshKey = 0;
   int _activeTab = 0; // 0: Sales & Profit, 1: Inventory Health
 
-  final List<String> _presets = ['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'All Time', 'Custom'];
+  final List<String> _presets = [
+    'Today',
+    'Yesterday',
+    'Last 7 Days',
+    'This Month',
+    'All Time',
+    'Custom',
+  ];
+
+  late Stream<List<Product>> _productsStream;
+  late Stream<List<Inventory>> _inventoriesStream;
+  Future<SalesReportData>? _salesReportFuture;
 
   @override
   void initState() {
     super.initState();
+    _initStreams();
     _applyPreset('All Time');
+  }
+
+  void _initStreams() {
+    _productsStream = widget.db.select(widget.db.products).watch();
+    _inventoriesStream = widget.db.select(widget.db.inventories).watch();
+  }
+
+  @override
+  void didUpdateWidget(covariant ReportsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.db != widget.db) {
+      _initStreams();
+      _fetchReport();
+    }
+  }
+
+  void _fetchReport() {
+    _salesReportFuture = PosDao(
+      widget.db,
+    ).getSalesReportData(startDate: _startDate, endDate: _endDate);
   }
 
   void _applyPreset(String preset) {
@@ -59,6 +91,7 @@ class _ReportsViewState extends State<ReportsView> {
           _endDate = null;
           break;
       }
+      _fetchReport();
     });
   }
 
@@ -69,14 +102,26 @@ class _ReportsViewState extends State<ReportsView> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
       initialDateRange: _startDate != null && _endDate != null
           ? DateTimeRange(start: _startDate!, end: _endDate!)
-          : DateTimeRange(start: DateTime.now().subtract(const Duration(days: 30)), end: DateTime.now()),
+          : DateTimeRange(
+              start: DateTime.now().subtract(const Duration(days: 30)),
+              end: DateTime.now(),
+            ),
     );
 
     if (picked != null) {
       setState(() {
         _selectedPreset = 'Custom';
         _startDate = picked.start;
-        _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59, 999);
+        _endDate = DateTime(
+          picked.end.year,
+          picked.end.month,
+          picked.end.day,
+          23,
+          59,
+          59,
+          999,
+        );
+        _fetchReport();
       });
     }
   }
@@ -89,6 +134,7 @@ class _ReportsViewState extends State<ReportsView> {
         onExpenseAdded: () {
           setState(() {
             _refreshKey++;
+            _fetchReport();
           });
         },
       ),
@@ -97,49 +143,68 @@ class _ReportsViewState extends State<ReportsView> {
 
   String get _periodLabel {
     if (_startDate == null || _endDate == null) return 'All Time Sales';
-    final s = '${_startDate!.year}-${_startDate!.month.toString().padLeft(2, '0')}-${_startDate!.day.toString().padLeft(2, '0')}';
-    final e = '${_endDate!.year}-${_endDate!.month.toString().padLeft(2, '0')}-${_endDate!.day.toString().padLeft(2, '0')}';
+    final s =
+        '${_startDate!.year}-${_startDate!.month.toString().padLeft(2, '0')}-${_startDate!.day.toString().padLeft(2, '0')}';
+    final e =
+        '${_endDate!.year}-${_endDate!.month.toString().padLeft(2, '0')}-${_endDate!.day.toString().padLeft(2, '0')}';
     return '$s to $e';
   }
 
   @override
   Widget build(BuildContext context) {
-    final posDao = PosDao(widget.db);
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isCompact = screenWidth < 600;
 
     return Container(
       color: AppTheme.backgroundColor,
       child: FutureBuilder<SalesReportData>(
-        key: ValueKey('sales_report_$_selectedPreset$_startDate$_endDate$_refreshKey'),
-        future: posDao.getSalesReportData(startDate: _startDate, endDate: _endDate),
+        future: _salesReportFuture,
         builder: (context, snapshot) {
           final report = snapshot.data;
-          final isLoading = snapshot.connectionState == ConnectionState.waiting && report == null;
+          final isLoading =
+              snapshot.connectionState == ConnectionState.waiting &&
+              report == null;
 
           return StreamBuilder<List<Product>>(
-            stream: widget.db.select(widget.db.products).watch(),
+            stream: _productsStream,
             builder: (context, prodSnap) {
               final products = prodSnap.data ?? [];
 
               return StreamBuilder<List<Inventory>>(
-                stream: widget.db.select(widget.db.inventories).watch(),
+                stream: _inventoriesStream,
                 builder: (context, invSnap) {
                   final inventories = invSnap.data ?? [];
-                  final inStockCount = inventories.where((i) => i.quantityOnHand > 10).length;
-                  final lowStockCount = inventories.where((i) => i.quantityOnHand > 0 && i.quantityOnHand <= 10).length;
-                  final outOfStockCount = inventories.where((i) => i.quantityOnHand <= 0).length;
 
+                  int inStockCount = 0;
+                  int lowStockCount = 0;
+                  int outOfStockCount = 0;
                   double totalValuation = 0.0;
-                  for (final inv in inventories) {
-                    final prod = products.where((p) => p.id == inv.productId).firstOrNull;
-                    if (prod != null) {
-                      totalValuation += (prod.price * inv.quantityOnHand);
+
+                  if (_activeTab == 1) {
+                    final prodPriceMap = <String, double>{
+                      for (final p in products) p.id: p.price,
+                    };
+                    for (final inv in inventories) {
+                      final q = inv.quantityOnHand;
+                      if (q > 10) {
+                        inStockCount++;
+                      } else if (q > 0) {
+                        lowStockCount++;
+                      } else {
+                        outOfStockCount++;
+                      }
+                      final price = prodPriceMap[inv.productId];
+                      if (price != null) {
+                        totalValuation += price * q;
+                      }
                     }
                   }
 
                   return ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     children: [
                       // 0. Top Report Tab Switcher
                       Container(
@@ -153,7 +218,10 @@ class _ReportsViewState extends State<ReportsView> {
                           children: [
                             Expanded(
                               child: _TabPill(
-                                label: PermissionService.instance.hasPermission(PosPermissions.reportsPlFinancials)
+                                label:
+                                    PermissionService.instance.hasPermission(
+                                      PosPermissions.reportsPlFinancials,
+                                    )
                                     ? 'Sales & Profit'
                                     : 'Sales Overview',
                                 icon: Icons.trending_up_rounded,
@@ -207,7 +275,9 @@ class _ReportsViewState extends State<ReportsView> {
                               children: [
                                 Expanded(child: _buildTopStocksCard(report)),
                                 const SizedBox(width: 14),
-                                Expanded(child: _buildTopCategoriesCard(report)),
+                                Expanded(
+                                  child: _buildTopCategoriesCard(report),
+                                ),
                               ],
                             ),
                           ],
@@ -231,13 +301,17 @@ class _ReportsViewState extends State<ReportsView> {
                           const SizedBox(height: 14),
 
                           // 6. Sold By (Staff Leaderboard)
-                          if (PermissionService.instance.hasPermission(PosPermissions.reportsStaffAudit)) ...[
+                          if (PermissionService.instance.hasPermission(
+                            PosPermissions.reportsStaffAudit,
+                          )) ...[
                             _buildSoldByCard(report),
                             const SizedBox(height: 14),
                           ],
 
                           // 7. Operating Expenses Log
-                          if (PermissionService.instance.hasPermission(PosPermissions.reportsExpenses)) ...[
+                          if (PermissionService.instance.hasPermission(
+                            PosPermissions.reportsExpenses,
+                          )) ...[
                             _buildExpensesLogCard(report),
                             const SizedBox(height: 14),
                           ],
@@ -280,28 +354,47 @@ class _ReportsViewState extends State<ReportsView> {
         children: [
           Row(
             children: [
-              const Icon(Icons.analytics_rounded, size: 20, color: AppTheme.primaryColor),
+              const Icon(
+                Icons.analytics_rounded,
+                size: 20,
+                color: AppTheme.primaryColor,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   _periodLabel,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primaryColor),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: AppTheme.primaryColor,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (report != null && PermissionService.instance.hasPermission(PosPermissions.reportsExport))
+              if (report != null &&
+                  PermissionService.instance.hasPermission(
+                    PosPermissions.reportsExport,
+                  ))
                 ElevatedButton.icon(
                   key: const Key('export_report_button'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryColor,
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     visualDensity: VisualDensity.compact,
                   ),
                   icon: const Icon(Icons.download_rounded, size: 15),
-                  label: const Text('Export Excel', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Export Excel',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
                   onPressed: () {
                     TransactionExportService.exportSalesReport(
                       context: context,
@@ -325,7 +418,9 @@ class _ReportsViewState extends State<ReportsView> {
                     label: Text(preset),
                     labelStyle: TextStyle(
                       fontSize: 11,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      fontWeight: isSelected
+                          ? FontWeight.bold
+                          : FontWeight.w500,
                       color: isSelected ? Colors.white : Colors.black87,
                     ),
                     backgroundColor: AppTheme.backgroundColor,
@@ -333,9 +428,16 @@ class _ReportsViewState extends State<ReportsView> {
                     checkmarkColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: isSelected ? Colors.transparent : AppTheme.cardBorderColor),
+                      side: BorderSide(
+                        color: isSelected
+                            ? Colors.transparent
+                            : AppTheme.cardBorderColor,
+                      ),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 0,
+                    ),
                     visualDensity: VisualDensity.compact,
                     onSelected: (_) {
                       if (preset == 'Custom') {
@@ -356,8 +458,12 @@ class _ReportsViewState extends State<ReportsView> {
 
   // --- PROFIT & LOSS MASTER CARD ---
   Widget _buildPnlCard(SalesReportData r, bool isCompact) {
-    final hasPl = PermissionService.instance.hasPermission(PosPermissions.reportsPlFinancials);
-    final hasExpenses = PermissionService.instance.hasPermission(PosPermissions.reportsExpenses);
+    final hasPl = PermissionService.instance.hasPermission(
+      PosPermissions.reportsPlFinancials,
+    );
+    final hasExpenses = PermissionService.instance.hasPermission(
+      PosPermissions.reportsExpenses,
+    );
 
     return Container(
       key: const Key('pnl_financial_card'),
@@ -366,13 +472,6 @@ class _ReportsViewState extends State<ReportsView> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppTheme.cardBorderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -384,15 +483,23 @@ class _ReportsViewState extends State<ReportsView> {
                 child: Row(
                   children: [
                     Icon(
-                      hasPl ? Icons.account_balance_rounded : Icons.trending_up_rounded,
+                      hasPl
+                          ? Icons.account_balance_rounded
+                          : Icons.trending_up_rounded,
                       size: 18,
                       color: AppTheme.accentColor,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        hasPl ? 'Profit & Loss (P&L) Statement' : 'Sales Revenue Overview',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+                        hasPl
+                            ? 'Profit & Loss (P&L) Statement'
+                            : 'Sales Revenue Overview',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -406,18 +513,30 @@ class _ReportsViewState extends State<ReportsView> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red.shade700,
                     side: BorderSide(color: Colors.red.shade200),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     visualDensity: VisualDensity.compact,
                   ),
                   icon: const Icon(Icons.add_rounded, size: 14),
-                  label: const Text('Add Expense', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Add Expense',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
                   onPressed: _openAddExpenseDialog,
                 ),
               ],
             ],
           ),
-          const Divider(height: 20, thickness: 1, color: AppTheme.cardBorderColor),
+          const Divider(
+            height: 20,
+            thickness: 1,
+            color: AppTheme.cardBorderColor,
+          ),
 
           if (!hasPl) ...[
             // Simplified Sales Overview without sensitive COGS or Profit Margins
@@ -473,7 +592,8 @@ class _ReportsViewState extends State<ReportsView> {
                     child: _buildFinanceMetric(
                       title: 'Gross Profit',
                       value: '₱${r.grossProfit.toStringAsFixed(2)}',
-                      subtitle: 'Margin: ${r.grossMarginPercent.toStringAsFixed(1)}%',
+                      subtitle:
+                          'Margin: ${r.grossMarginPercent.toStringAsFixed(1)}%',
                       color: AppTheme.inStockColor,
                       icon: Icons.trending_up_rounded,
                       isHighlight: true,
@@ -500,7 +620,8 @@ class _ReportsViewState extends State<ReportsView> {
                     child: _buildFinanceMetric(
                       title: 'Gross Profit',
                       value: '₱${r.grossProfit.toStringAsFixed(2)}',
-                      subtitle: 'Margin: ${r.grossMarginPercent.toStringAsFixed(1)}%',
+                      subtitle:
+                          'Margin: ${r.grossMarginPercent.toStringAsFixed(1)}%',
                       color: AppTheme.inStockColor,
                       icon: Icons.trending_up_rounded,
                       isHighlight: true,
@@ -525,7 +646,8 @@ class _ReportsViewState extends State<ReportsView> {
             _buildFinanceMetric(
               title: 'Net Profit',
               value: '₱${r.netProfit.toStringAsFixed(2)}',
-              subtitle: 'Net Margin: ${r.netMarginPercent.toStringAsFixed(1)}% • (Sales - Cost - Expenses)',
+              subtitle:
+                  'Net Margin: ${r.netMarginPercent.toStringAsFixed(1)}% • (Sales - Cost - Expenses)',
               color: r.netProfit >= 0 ? const Color(0xFF059669) : Colors.red,
               icon: Icons.monetization_on_rounded,
               isHighlight: true,
@@ -548,11 +670,20 @@ class _ReportsViewState extends State<ReportsView> {
   }) {
     return Container(
       width: isWide ? double.infinity : null,
-      padding: EdgeInsets.symmetric(horizontal: isWide ? 14 : 12, vertical: isWide ? 12 : 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: isWide ? 14 : 12,
+        vertical: isWide ? 12 : 10,
+      ),
       decoration: BoxDecoration(
-        color: isHighlight ? color.withValues(alpha: 0.08) : AppTheme.backgroundColor,
+        color: isHighlight
+            ? color.withValues(alpha: 0.08)
+            : AppTheme.backgroundColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: isHighlight ? color.withValues(alpha: 0.3) : AppTheme.cardBorderColor),
+        border: Border.all(
+          color: isHighlight
+              ? color.withValues(alpha: 0.3)
+              : AppTheme.cardBorderColor,
+        ),
       ),
       child: isWide
           ? Row(
@@ -570,17 +701,35 @@ class _ReportsViewState extends State<ReportsView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w600)),
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 2),
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: Text(
                           value,
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
                         ),
                       ),
-                      Text(subtitle, style: TextStyle(fontSize: 10, color: Colors.grey.shade600), overflow: TextOverflow.ellipsis),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
@@ -603,7 +752,11 @@ class _ReportsViewState extends State<ReportsView> {
                     Expanded(
                       child: Text(
                         title,
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -615,7 +768,11 @@ class _ReportsViewState extends State<ReportsView> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     value,
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -743,13 +900,6 @@ class _ReportsViewState extends State<ReportsView> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.cardBorderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -761,7 +911,11 @@ class _ReportsViewState extends State<ReportsView> {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Colors.black87),
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -773,7 +927,11 @@ class _ReportsViewState extends State<ReportsView> {
             alignment: Alignment.centerLeft,
             child: Text(
               value,
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
             ),
           ),
           const SizedBox(height: 2),
@@ -803,21 +961,30 @@ class _ReportsViewState extends State<ReportsView> {
             children: [
               Icon(Icons.star_rounded, size: 18, color: Color(0xFFEAB308)),
               SizedBox(width: 6),
-              Text('Top Stocks (Best-Sellers)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(
+                'Top Stocks (Best-Sellers)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           if (r.topProducts.isEmpty)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Center(child: Text('No stock sales recorded in this period', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))),
+              child: Center(
+                child: Text(
+                  'No stock sales recorded in this period',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ),
             )
           else
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: r.topProducts.take(5).length,
-              separatorBuilder: (_, _) => const Divider(height: 12, thickness: 0.5),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 12, thickness: 0.5),
               itemBuilder: (context, index) {
                 final p = r.topProducts[index];
                 return Row(
@@ -829,10 +996,10 @@ class _ReportsViewState extends State<ReportsView> {
                         color: index == 0
                             ? const Color(0xFFEAB308)
                             : index == 1
-                                ? const Color(0xFF94A3B8)
-                                : index == 2
-                                    ? const Color(0xFFD97706)
-                                    : Colors.grey.shade200,
+                            ? const Color(0xFF94A3B8)
+                            : index == 2
+                            ? const Color(0xFFD97706)
+                            : Colors.grey.shade200,
                         shape: BoxShape.circle,
                       ),
                       child: Center(
@@ -851,23 +1018,51 @@ class _ReportsViewState extends State<ReportsView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(p.productName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                          Text(
+                            p.productName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           if (p.variantName != null)
-                            Text('Variant: ${p.variantName}', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                            Text(
+                              'Variant: ${p.variantName}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
                         ],
                       ),
                     ),
                     Builder(
                       builder: (context) {
-                        final hasPl = PermissionService.instance.hasPermission(PosPermissions.reportsPlFinancials);
-                        final qtyText = '${p.quantitySold.toStringAsFixed(p.quantitySold % 1 == 0 ? 0 : 3)} sold';
+                        final hasPl = PermissionService.instance.hasPermission(
+                          PosPermissions.reportsPlFinancials,
+                        );
+                        final qtyText =
+                            '${p.quantitySold.toStringAsFixed(p.quantitySold % 1 == 0 ? 0 : 3)} sold';
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('₱${p.totalRevenue.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
                             Text(
-                              hasPl ? '$qtyText • Profit: ₱${p.profit.toStringAsFixed(0)}' : qtyText,
-                              style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                              '₱${p.totalRevenue.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primaryColor,
+                              ),
+                            ),
+                            Text(
+                              hasPl
+                                  ? '$qtyText • Profit: ₱${p.profit.toStringAsFixed(0)}'
+                                  : qtyText,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade600,
+                              ),
                             ),
                           ],
                         );
@@ -896,16 +1091,28 @@ class _ReportsViewState extends State<ReportsView> {
         children: [
           const Row(
             children: [
-              Icon(Icons.category_rounded, size: 18, color: AppTheme.accentColor),
+              Icon(
+                Icons.category_rounded,
+                size: 18,
+                color: AppTheme.accentColor,
+              ),
               SizedBox(width: 6),
-              Text('Top Categories', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(
+                'Top Categories',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           if (r.topCategories.isEmpty)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Center(child: Text('No category sales in this period', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))),
+              child: Center(
+                child: Text(
+                  'No category sales in this period',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ),
             )
           else
             ListView.separated(
@@ -921,8 +1128,21 @@ class _ReportsViewState extends State<ReportsView> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(cat.categoryName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                        Text('₱${cat.totalRevenue.toStringAsFixed(2)} (${cat.sharePercentage.toStringAsFixed(1)}%)', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                        Text(
+                          cat.categoryName,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '₱${cat.totalRevenue.toStringAsFixed(2)} (${cat.sharePercentage.toStringAsFixed(1)}%)',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryColor,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -930,8 +1150,12 @@ class _ReportsViewState extends State<ReportsView> {
                       borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
                         value: (cat.sharePercentage / 100).clamp(0.0, 1.0),
-                        backgroundColor: AppTheme.accentColor.withValues(alpha: 0.12),
-                        valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accentColor),
+                        backgroundColor: AppTheme.accentColor.withValues(
+                          alpha: 0.12,
+                        ),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppTheme.accentColor,
+                        ),
                         minHeight: 6,
                       ),
                     ),
@@ -958,16 +1182,28 @@ class _ReportsViewState extends State<ReportsView> {
         children: [
           const Row(
             children: [
-              Icon(Icons.credit_card_rounded, size: 18, color: Color(0xFF6366F1)),
+              Icon(
+                Icons.credit_card_rounded,
+                size: 18,
+                color: Color(0xFF6366F1),
+              ),
               SizedBox(width: 6),
-              Text('Payment Modes', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(
+                'Payment Modes',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           if (r.paymentModes.isEmpty)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Center(child: Text('No payment data in this period', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))),
+              child: Center(
+                child: Text(
+                  'No payment data in this period',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ),
             )
           else
             Wrap(
@@ -988,13 +1224,39 @@ class _ReportsViewState extends State<ReportsView> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(pm.displayName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                          Text('${pm.sharePercentage.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.accentColor)),
+                          Text(
+                            pm.displayName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${pm.sharePercentage.toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.accentColor,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text('₱${pm.totalAmount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
-                      Text('${pm.count} tenders', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                      Text(
+                        '₱${pm.totalAmount.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                      Text(
+                        '${pm.count} tenders',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -1019,33 +1281,54 @@ class _ReportsViewState extends State<ReportsView> {
         children: [
           const Row(
             children: [
-              Icon(Icons.people_alt_rounded, size: 18, color: Color(0xFF0284C7)),
+              Icon(
+                Icons.people_alt_rounded,
+                size: 18,
+                color: Color(0xFF0284C7),
+              ),
               SizedBox(width: 6),
-              Text('Top Customers', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(
+                'Top Customers',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           if (r.topCustomers.isEmpty)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Center(child: Text('No customer sales in this period', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))),
+              child: Center(
+                child: Text(
+                  'No customer sales in this period',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ),
             )
           else
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: r.topCustomers.take(5).length,
-              separatorBuilder: (_, _) => const Divider(height: 10, thickness: 0.5),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 10, thickness: 0.5),
               itemBuilder: (context, index) {
                 final c = r.topCustomers[index];
                 return Row(
                   children: [
                     CircleAvatar(
                       radius: 12,
-                      backgroundColor: AppTheme.accentColor.withValues(alpha: 0.15),
+                      backgroundColor: AppTheme.accentColor.withValues(
+                        alpha: 0.15,
+                      ),
                       child: Text(
-                        c.customerName.isNotEmpty ? c.customerName[0].toUpperCase() : 'C',
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.accentColor),
+                        c.customerName.isNotEmpty
+                            ? c.customerName[0].toUpperCase()
+                            : 'C',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.accentColor,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1053,12 +1336,32 @@ class _ReportsViewState extends State<ReportsView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(c.customerName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-                          Text('${c.ordersCount} orders • Tier: ${c.loyaltyTier}', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                          Text(
+                            c.customerName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '${c.ordersCount} orders • Tier: ${c.loyaltyTier}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    Text('₱${c.totalSpend.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                    Text(
+                      '₱${c.totalSpend.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
                   ],
                 );
               },
@@ -1085,37 +1388,70 @@ class _ReportsViewState extends State<ReportsView> {
             children: [
               Icon(Icons.badge_rounded, size: 18, color: AppTheme.primaryColor),
               SizedBox(width: 6),
-              Text('Sales by Staff (Sold By)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              Text(
+                'Sales by Staff (Sold By)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 10),
           if (r.soldBy.isEmpty)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Center(child: Text('No cashier sales recorded in this period', style: TextStyle(fontSize: 12, color: Colors.grey.shade500))),
+              child: Center(
+                child: Text(
+                  'No cashier sales recorded in this period',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ),
             )
           else
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: r.soldBy.length,
-              separatorBuilder: (_, _) => const Divider(height: 10, thickness: 0.5),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 10, thickness: 0.5),
               itemBuilder: (context, index) {
                 final s = r.soldBy[index];
                 return Row(
                   children: [
-                    const Icon(Icons.person_outline_rounded, size: 18, color: Colors.grey),
+                    const Icon(
+                      Icons.person_outline_rounded,
+                      size: 18,
+                      color: Colors.grey,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(s.employeeName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-                          Text('${s.position} • ${s.receiptCount} receipts • Avg: ₱${s.averageTicket.toStringAsFixed(0)}', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                          Text(
+                            s.employeeName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '${s.position} • ${s.receiptCount} receipts • Avg: ₱${s.averageTicket.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    Text('₱${s.totalSales.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primaryColor)),
+                    Text(
+                      '₱${s.totalSales.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primaryColor,
+                      ),
+                    ),
                   ],
                 );
               },
@@ -1143,15 +1479,34 @@ class _ReportsViewState extends State<ReportsView> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.receipt_long_rounded, size: 18, color: Colors.red),
+                  const Icon(
+                    Icons.receipt_long_rounded,
+                    size: 18,
+                    color: Colors.red,
+                  ),
                   const SizedBox(width: 6),
-                  Text('Operating Expenses (₱${r.totalExpenses.toStringAsFixed(2)})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  Text(
+                    'Operating Expenses (₱${r.totalExpenses.toStringAsFixed(2)})',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
               TextButton.icon(
-                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
                 icon: const Icon(Icons.add, size: 14, color: Colors.red),
-                label: const Text('Add', style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Add',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 onPressed: _openAddExpenseDialog,
               ),
             ],
@@ -1161,7 +1516,10 @@ class _ReportsViewState extends State<ReportsView> {
             Padding(
               padding: const EdgeInsets.all(12),
               child: Center(
-                child: Text('No store expenses recorded for this period', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                child: Text(
+                  'No store expenses recorded for this period',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
               ),
             )
           else
@@ -1169,7 +1527,8 @@ class _ReportsViewState extends State<ReportsView> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: r.recentExpenses.take(5).length,
-              separatorBuilder: (_, _) => const Divider(height: 8, thickness: 0.5),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 8, thickness: 0.5),
               itemBuilder: (context, index) {
                 final exp = r.recentExpenses[index];
                 return Row(
@@ -1178,20 +1537,42 @@ class _ReportsViewState extends State<ReportsView> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(exp.category, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          Text(
+                            exp.category,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           Text(
                             '${exp.createdAt.toLocal().toString().substring(0, 10)}${exp.description != null ? ' • ${exp.description}' : ''}',
-                            style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade600,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
-                    Text('₱${exp.amount.toStringAsFixed(2)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red.shade700)),
-                    if (PermissionService.instance.hasPermission(PosPermissions.reportsExpenses))
+                    Text(
+                      '₱${exp.amount.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red.shade700,
+                      ),
+                    ),
+                    if (PermissionService.instance.hasPermission(
+                      PosPermissions.reportsExpenses,
+                    ))
                       IconButton(
                         key: Key('delete_expense_${exp.id}'),
-                        icon: const Icon(Icons.close_rounded, size: 14, color: Colors.grey),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          size: 14,
+                          color: Colors.grey,
+                        ),
                         visualDensity: VisualDensity.compact,
                         tooltip: 'Delete Expense',
                         onPressed: () async {
@@ -1254,13 +1635,6 @@ class _ReportsViewState extends State<ReportsView> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: AppTheme.cardBorderColor),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.02),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1325,13 +1699,6 @@ class _StatCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.cardBorderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1342,7 +1709,11 @@ class _StatCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1398,8 +1769,21 @@ class _HealthBarRow extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500)),
-            Text('$count items', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: color)),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            Text(
+              '$count items',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 3),
@@ -1469,4 +1853,3 @@ class _TabPill extends StatelessWidget {
     );
   }
 }
-
