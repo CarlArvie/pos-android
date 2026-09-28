@@ -39,7 +39,8 @@ class CheckoutDialog extends StatefulWidget {
 
 class _CheckoutDialogState extends State<CheckoutDialog> {
   String _paymentMethod = 'cash'; // cash, gcash, maya, card, credit
-  final TextEditingController _amountTenderedController = TextEditingController();
+  final TextEditingController _amountTenderedController =
+      TextEditingController();
   final TextEditingController _refNoController = TextEditingController();
   bool _isProcessing = false;
   bool _isSuccess = false;
@@ -63,7 +64,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
 
   bool get _canChargeCredit {
     return widget.customer != null &&
-        PermissionService.instance.hasPermission(PosPermissions.customersCreditCharge);
+        PermissionService.instance.hasPermission(
+          PosPermissions.customersCreditCharge,
+        );
   }
 
   double get _availableCredit {
@@ -134,14 +137,22 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       final stores = await widget.db.select(widget.db.stores).get();
       final registers = await widget.db.select(widget.db.cashRegisters).get();
 
-      final companyId = DevicePrefs.companyId ?? (companies.isNotEmpty ? companies.first.id : 'default-company-001');
-      final storeId = DevicePrefs.storeId ?? (stores.isNotEmpty ? stores.first.id : 'default-store-001');
-      final registerId = DevicePrefs.registerId ?? (registers.isNotEmpty ? registers.first.id : 'default-reg-001');
+      final companyId =
+          DevicePrefs.companyId ??
+          (companies.isNotEmpty ? companies.first.id : 'default-company-001');
+      final storeId =
+          DevicePrefs.storeId ??
+          (stores.isNotEmpty ? stores.first.id : 'default-store-001');
+      final registerId =
+          DevicePrefs.registerId ??
+          (registers.isNotEmpty ? registers.first.id : 'default-reg-001');
 
       // Generate realistic readable collision-resistant invoice number
       final now = DateTime.now();
-      final dateStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-      final timeStr = '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+      final dateStr =
+          '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+      final timeStr =
+          '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
       final randomSeq = (Random().nextInt(900) + 100).toString();
       final invoiceNo = 'INV-$dateStr-$timeStr-$randomSeq';
 
@@ -159,7 +170,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       }).toList();
 
       // Prepare tender payments
-      final tendered = _paymentMethod == 'cash' ? _amountTendered : widget.grandTotal;
+      final tendered = _paymentMethod == 'cash'
+          ? _amountTendered
+          : widget.grandTotal;
       final change = _paymentMethod == 'cash' ? _changeAmount : 0.0;
 
       final tenderPayments = [
@@ -168,7 +181,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
           amount: widget.grandTotal,
           amountTendered: tendered,
           changeAmount: change,
-          refNo: _refNoController.text.trim().isEmpty ? null : _refNoController.text.trim(),
+          refNo: _refNoController.text.trim().isEmpty
+              ? null
+              : _refNoController.text.trim(),
         ),
       ];
 
@@ -201,14 +216,21 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
       setState(() => _isProcessing = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Checkout failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Checkout failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
   }
 
   void _shareReceipt() {
-    if (!PermissionService.instance.hasPermission(PosPermissions.transactionsReceipt)) return;
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.transactionsReceipt,
+    )) {
+      return;
+    }
     final buffer = StringBuffer();
     buffer.writeln('================================');
     buffer.writeln('          SALES RECEIPT         ');
@@ -216,17 +238,23 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     buffer.writeln('Invoice: $_generatedInvoiceNo');
     buffer.writeln('Date: ${DateTime.now().toString().substring(0, 19)}');
     if (widget.customer != null) {
-      buffer.writeln('Customer: ${widget.customer!.fullName} (${widget.customer!.loyaltyTier})');
+      buffer.writeln(
+        'Customer: ${widget.customer!.fullName} (${widget.customer!.loyaltyTier})',
+      );
     }
     buffer.writeln('--------------------------------');
     for (final item in widget.items) {
       buffer.writeln('${item.product.productName} x ${item.formattedQuantity}');
-      buffer.writeln('  @ ₱${item.unitPrice.toStringAsFixed(2)} = ₱${item.rawTotal.toStringAsFixed(2)}');
+      buffer.writeln(
+        '  @ ₱${item.unitPrice.toStringAsFixed(2)} = ₱${item.rawTotal.toStringAsFixed(2)}',
+      );
     }
     buffer.writeln('--------------------------------');
     buffer.writeln('Subtotal:       ₱${widget.subtotal.toStringAsFixed(2)}');
     if (widget.discountTotal > 0) {
-      buffer.writeln('Discount:      -₱${widget.discountTotal.toStringAsFixed(2)}');
+      buffer.writeln(
+        'Discount:      -₱${widget.discountTotal.toStringAsFixed(2)}',
+      );
     }
     if (widget.taxTotal > 0) {
       buffer.writeln('VAT / Tax:     +₱${widget.taxTotal.toStringAsFixed(2)}');
@@ -235,13 +263,20 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     buffer.writeln('Payment:        ${_paymentMethod.toUpperCase()}');
     if (_paymentMethod == 'cash') {
       buffer.writeln('Tendered:       ₱${_amountTendered.toStringAsFixed(2)}');
-      buffer.writeln('Change:         ₱${_finalChangeAmount.toStringAsFixed(2)}');
+      buffer.writeln(
+        'Change:         ₱${_finalChangeAmount.toStringAsFixed(2)}',
+      );
     }
     buffer.writeln('================================');
     buffer.writeln('      Thank you for shopping!   ');
     buffer.writeln('================================');
 
-    SharePlus.instance.share(ShareParams(text: buffer.toString(), subject: 'Receipt $_generatedInvoiceNo'));
+    SharePlus.instance.share(
+      ShareParams(
+        text: buffer.toString(),
+        subject: 'Receipt $_generatedInvoiceNo',
+      ),
+    );
   }
 
   @override
@@ -278,7 +313,11 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
           children: [
             const Row(
               children: [
-                Icon(Icons.point_of_sale_rounded, color: AppTheme.accentColor, size: 24),
+                Icon(
+                  Icons.point_of_sale_rounded,
+                  color: AppTheme.accentColor,
+                  size: 24,
+                ),
                 SizedBox(width: 10),
                 Text(
                   'Complete Sale',
@@ -306,7 +345,10 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
               children: [
                 // Grand Total Banner
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.primaryColor,
                     borderRadius: BorderRadius.circular(12),
@@ -330,7 +372,10 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                             const SizedBox(height: 2),
                             Text(
                               '${widget.items.length} item(s)',
-                              style: const TextStyle(fontSize: 12, color: Colors.white60),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white60,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
@@ -356,15 +401,24 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                 if (widget.customer != null) ...[
                   const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.accentColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.accentColor.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: AppTheme.accentColor.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.person_rounded, size: 16, color: AppTheme.accentColor),
+                        const Icon(
+                          Icons.person_rounded,
+                          size: 16,
+                          color: AppTheme.accentColor,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -381,11 +435,19 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                           children: [
                             Text(
                               '${widget.customer!.pointsBalance.toStringAsFixed(0)} pts',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.accentColor),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.accentColor,
+                              ),
                             ),
                             Text(
                               '+${(widget.subtotal / 100).floor()} pts to earn',
-                              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.green.shade700),
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.shade700,
+                              ),
                             ),
                           ],
                         ),
@@ -398,23 +460,113 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                 // Payment Method Selector
                 const Text(
                   'Select Payment Method',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primaryColor,
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _buildPaymentMethodTile('cash', 'Cash', Icons.payments_rounded, AppTheme.accentColor),
-                    const SizedBox(width: 6),
-                    _buildPaymentMethodTile('gcash', 'GCash', Icons.account_balance_wallet_rounded, const Color(0xFF007DFE)),
-                    const SizedBox(width: 6),
-                    _buildPaymentMethodTile('maya', 'Maya', Icons.credit_card_rounded, const Color(0xFF22C55E)),
-                    const SizedBox(width: 6),
-                    _buildPaymentMethodTile('card', 'Card', Icons.credit_score_rounded, const Color(0xFF6366F1)),
-                    if (_canChargeCredit) ...[
-                      const SizedBox(width: 6),
-                      _buildPaymentMethodTile('credit', 'Credit', Icons.account_balance_rounded, const Color(0xFFE11D48)),
-                    ],
-                  ],
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isNarrow = constraints.maxWidth < 400;
+                    if (isNarrow) {
+                      return Column(
+                        children: [
+                          Row(
+                            children: [
+                              _buildPaymentMethodTile(
+                                'cash',
+                                'Cash',
+                                Icons.payments_rounded,
+                                AppTheme.accentColor,
+                              ),
+                              const SizedBox(width: 6),
+                              _buildPaymentMethodTile(
+                                'gcash',
+                                'GCash',
+                                Icons.account_balance_wallet_rounded,
+                                const Color(0xFF007DFE),
+                              ),
+                              const SizedBox(width: 6),
+                              _buildPaymentMethodTile(
+                                'maya',
+                                'Maya',
+                                Icons.credit_card_rounded,
+                                const Color(0xFF22C55E),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              _buildPaymentMethodTile(
+                                'card',
+                                'Card',
+                                Icons.credit_score_rounded,
+                                const Color(0xFF6366F1),
+                              ),
+                              const SizedBox(width: 6),
+                              if (_canChargeCredit) ...[
+                                _buildPaymentMethodTile(
+                                  'credit',
+                                  'Credit',
+                                  Icons.account_balance_rounded,
+                                  const Color(0xFFE11D48),
+                                ),
+                                const SizedBox(width: 6),
+                                const Spacer(),
+                              ] else ...[
+                                const Spacer(),
+                                const SizedBox(width: 6),
+                                const Spacer(),
+                              ],
+                            ],
+                          ),
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        _buildPaymentMethodTile(
+                          'cash',
+                          'Cash',
+                          Icons.payments_rounded,
+                          AppTheme.accentColor,
+                        ),
+                        const SizedBox(width: 6),
+                        _buildPaymentMethodTile(
+                          'gcash',
+                          'GCash',
+                          Icons.account_balance_wallet_rounded,
+                          const Color(0xFF007DFE),
+                        ),
+                        const SizedBox(width: 6),
+                        _buildPaymentMethodTile(
+                          'maya',
+                          'Maya',
+                          Icons.credit_card_rounded,
+                          const Color(0xFF22C55E),
+                        ),
+                        const SizedBox(width: 6),
+                        _buildPaymentMethodTile(
+                          'card',
+                          'Card',
+                          Icons.credit_score_rounded,
+                          const Color(0xFF6366F1),
+                        ),
+                        if (_canChargeCredit) ...[
+                          const SizedBox(width: 6),
+                          _buildPaymentMethodTile(
+                            'credit',
+                            'Credit',
+                            Icons.account_balance_rounded,
+                            const Color(0xFFE11D48),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -429,11 +581,19 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                   TextFormField(
                     key: const Key('amount_tendered_input'),
                     controller: _amountTenderedController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
                     decoration: InputDecoration(
                       prefixText: '₱ ',
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.clear, size: 18),
                         onPressed: () => _amountTenderedController.clear(),
@@ -451,13 +611,19 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                       return ActionChip(
                         key: Key('bill_chip_${bill.toInt()}'),
                         label: Text(
-                          isExact ? 'Exact (₱${bill.toStringAsFixed(2)})' : '₱${bill.toStringAsFixed(0)}',
+                          isExact
+                              ? 'Exact (₱${bill.toStringAsFixed(2)})'
+                              : '₱${bill.toStringAsFixed(0)}',
                         ),
-                        backgroundColor: isExact ? AppTheme.accentColor.withValues(alpha: 0.12) : null,
+                        backgroundColor: isExact
+                            ? AppTheme.accentColor.withValues(alpha: 0.12)
+                            : null,
                         labelStyle: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: isExact ? AppTheme.accentColor : Colors.black87,
+                          color: isExact
+                              ? AppTheme.accentColor
+                              : Colors.black87,
                         ),
                         onPressed: () => _setCashBill(bill),
                       );
@@ -483,7 +649,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          _amountTendered >= widget.grandTotal ? 'Change Due:' : 'Insufficient Amount:',
+                          _amountTendered >= widget.grandTotal
+                              ? 'Change Due:'
+                              : 'Insufficient Amount:',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
@@ -554,31 +722,62 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Credit Limit:', style: TextStyle(fontSize: 12, color: Colors.black87)),
-                            Text('₱${widget.customer!.creditLimit.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            const Text(
+                              'Credit Limit:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              '₱${widget.customer!.creditLimit.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Current Outstanding Due:', style: TextStyle(fontSize: 12, color: Colors.black87)),
-                            Text('₱${widget.customer!.dueAmount.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                            const Text(
+                              'Current Outstanding Due:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              '₱${widget.customer!.dueAmount.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Available Credit Balance:', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                            const Text(
+                              'Available Credit Balance:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black87,
+                              ),
+                            ),
                             Text(
                               '₱${_availableCredit.toStringAsFixed(2)}',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.bold,
-                                color: _availableCredit >= widget.grandTotal ? Colors.green.shade700 : Colors.red,
+                                color: _availableCredit >= widget.grandTotal
+                                    ? Colors.green.shade700
+                                    : Colors.red,
                               ),
                             ),
                           ],
@@ -587,14 +786,23 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                         if (widget.grandTotal > _availableCredit)
                           Text(
                             '⚠️ Cannot proceed: Order total (₱${widget.grandTotal.toStringAsFixed(2)}) exceeds customer\'s remaining credit of ₱${_availableCredit.toStringAsFixed(2)}.',
-                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.red),
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
                           )
                         else
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('New Due After Purchase:',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              const Text(
+                                'New Due After Purchase:',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                               Text(
                                 '₱${(widget.customer!.dueAmount + widget.grandTotal).toStringAsFixed(2)}',
                                 style: const TextStyle(
@@ -646,12 +854,19 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.info_outline_rounded, color: Colors.blue, size: 20),
+                        const Icon(
+                          Icons.info_outline_rounded,
+                          color: Colors.blue,
+                          size: 20,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Ask customer to scan dynamic QR code or tap terminal, then enter transaction reference.',
-                            style: TextStyle(fontSize: 11.5, color: Colors.blue.shade900),
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.blue.shade900,
+                            ),
                           ),
                         ),
                       ],
@@ -682,18 +897,26 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                   backgroundColor: AppTheme.accentColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: _canSubmit ? _processCheckout : null,
                 child: _isProcessing
                     ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Text(
                         'Complete Payment',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
               ),
             ),
@@ -703,7 +926,12 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     );
   }
 
-  Widget _buildPaymentMethodTile(String id, String label, IconData icon, Color color) {
+  Widget _buildPaymentMethodTile(
+    String id,
+    String label,
+    IconData icon,
+    Color color,
+  ) {
     final isSelected = _paymentMethod == id;
     return Expanded(
       child: InkWell(
@@ -713,7 +941,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
           decoration: BoxDecoration(
-            color: isSelected ? color.withValues(alpha: 0.12) : AppTheme.backgroundColor,
+            color: isSelected
+                ? color.withValues(alpha: 0.12)
+                : AppTheme.backgroundColor,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: isSelected ? color : AppTheme.cardBorderColor,
@@ -731,7 +961,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                   label,
                   style: TextStyle(
                     fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
                     color: isSelected ? color : Colors.black87,
                   ),
                 ),
@@ -753,7 +985,11 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
           child: CircleAvatar(
             radius: 30,
             backgroundColor: AppTheme.inStockBg,
-            child: Icon(Icons.check_circle_rounded, color: AppTheme.inStockColor, size: 40),
+            child: Icon(
+              Icons.check_circle_rounded,
+              color: AppTheme.inStockColor,
+              size: 40,
+            ),
           ),
         ),
         const SizedBox(height: 10),
@@ -791,7 +1027,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
             children: [
               _buildReceiptRow(
                 'Payment Method',
-                _paymentMethod == 'credit' ? 'STORE CREDIT (ON ACCOUNT)' : _paymentMethod.toUpperCase(),
+                _paymentMethod == 'credit'
+                    ? 'STORE CREDIT (ON ACCOUNT)'
+                    : _paymentMethod.toUpperCase(),
               ),
               if (_paymentMethod == 'credit' && widget.customer != null) ...[
                 _buildReceiptRow('Charged To', widget.customer!.fullName),
@@ -802,16 +1040,36 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                 ),
               ],
               const Divider(height: 14),
-              _buildReceiptRow('Subtotal', '₱${widget.subtotal.toStringAsFixed(2)}'),
+              _buildReceiptRow(
+                'Subtotal',
+                '₱${widget.subtotal.toStringAsFixed(2)}',
+              ),
               if (widget.discountTotal > 0)
-                _buildReceiptRow('Discounts', '-₱${widget.discountTotal.toStringAsFixed(2)}'),
+                _buildReceiptRow(
+                  'Discounts',
+                  '-₱${widget.discountTotal.toStringAsFixed(2)}',
+                ),
               if (widget.taxTotal > 0)
-                _buildReceiptRow('VAT / Tax', '+₱${widget.taxTotal.toStringAsFixed(2)}'),
+                _buildReceiptRow(
+                  'VAT / Tax',
+                  '+₱${widget.taxTotal.toStringAsFixed(2)}',
+                ),
               const Divider(height: 14),
-              _buildReceiptRow('Grand Total', '₱${widget.grandTotal.toStringAsFixed(2)}', isBold: true),
+              _buildReceiptRow(
+                'Grand Total',
+                '₱${widget.grandTotal.toStringAsFixed(2)}',
+                isBold: true,
+              ),
               if (_paymentMethod == 'cash') ...[
-                _buildReceiptRow('Cash Tendered', '₱${_amountTendered.toStringAsFixed(2)}'),
-                _buildReceiptRow('Change', '₱${_finalChangeAmount.toStringAsFixed(2)}', isHighlight: true),
+                _buildReceiptRow(
+                  'Cash Tendered',
+                  '₱${_amountTendered.toStringAsFixed(2)}',
+                ),
+                _buildReceiptRow(
+                  'Change',
+                  '₱${_finalChangeAmount.toStringAsFixed(2)}',
+                  isHighlight: true,
+                ),
               ],
             ],
           ),
@@ -821,7 +1079,9 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
         // Actions: Share Receipt & Start Next Sale
         Builder(
           builder: (context) {
-            final hasReceipt = PermissionService.instance.hasPermission(PosPermissions.transactionsReceipt);
+            final hasReceipt = PermissionService.instance.hasPermission(
+              PosPermissions.transactionsReceipt,
+            );
             return Row(
               children: [
                 if (hasReceipt) ...[
@@ -831,10 +1091,18 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.primaryColor,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                       icon: const Icon(Icons.share_rounded, size: 18),
-                      label: const Text('Share Receipt', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      label: const Text(
+                        'Share Receipt',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       onPressed: _shareReceipt,
                     ),
                   ),
@@ -848,10 +1116,18 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
                       backgroundColor: AppTheme.accentColor,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                     icon: const Icon(Icons.add_shopping_cart_rounded, size: 18),
-                    label: const Text('Start Next Sale', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'Start Next Sale',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ),
@@ -863,7 +1139,12 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
     );
   }
 
-  Widget _buildReceiptRow(String label, String value, {bool isBold = false, bool isHighlight = false}) {
+  Widget _buildReceiptRow(
+    String label,
+    String value, {
+    bool isBold = false,
+    bool isHighlight = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2.5),
       child: Row(
@@ -885,8 +1166,12 @@ class _CheckoutDialogState extends State<CheckoutDialog> {
               value,
               style: TextStyle(
                 fontSize: isHighlight || isBold ? 14 : 12.5,
-                fontWeight: isBold || isHighlight ? FontWeight.bold : FontWeight.normal,
-                color: isHighlight ? AppTheme.inStockColor : AppTheme.primaryColor,
+                fontWeight: isBold || isHighlight
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+                color: isHighlight
+                    ? AppTheme.inStockColor
+                    : AppTheme.primaryColor,
               ),
             ),
           ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../data/local/database.dart';
 import '../../data/local/daos/pos_dao.dart';
@@ -32,35 +33,98 @@ class CounterView extends StatefulWidget {
 
 class _CounterViewState extends State<CounterView> {
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
   String _selectedCategoryId = 'all';
   String _searchQuery = '';
 
-  // Active Cart State
+  // Persistent streams initialized once in initState
+  late Stream<CashManagement?> _activeShiftStream;
+  late Stream<List<ProductType>> _categoriesStream;
+  late Stream<List<Product>> _productsStream;
+
+  // Active Cart State & O(1) quantity index
   final List<CartItem> _cart = [];
+  final Map<String, double> _cartItemQuantities = {};
   double _overallDiscount = 0.0;
   String _discountType = 'none'; // 'none', 'pwd_senior_20', 'custom'
   String _discountLabel = 'Discount'; // display label for cart summary
   final List<List<CartItem>> _heldCarts = [];
   Customer? _selectedCustomer;
 
+  // Memoized grouped products
+  List<Product>? _lastFilteredProducts;
+  List<GroupedPosProduct> _cachedGroupedProducts = const [];
+
   @override
   void initState() {
     super.initState();
-    PermissionService.instance.changeNotifier.addListener(_onPermissionsChanged);
+    _initStreams();
+    PermissionService.instance.changeNotifier.addListener(
+      _onPermissionsChanged,
+    );
+  }
+
+  void _initStreams() {
+    final regId = DevicePrefs.registerId ?? 'default-reg-001';
+    final empId = DevicePrefs.currentEmployeeId;
+    _activeShiftStream = PosDao(
+      widget.db,
+    ).watchActiveShift(regId, employeeId: empId);
+    _categoriesStream = (widget.db.select(
+      widget.db.productTypes,
+    )..where((c) => c.isDeleted.equals(false))).watch();
+    _productsStream =
+        (widget.db.select(widget.db.products)
+              ..where((p) => p.isActive.equals(true))
+              ..where((p) => p.isDeleted.equals(false)))
+            .watch();
+  }
+
+  @override
+  void didUpdateWidget(covariant CounterView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.db != widget.db) {
+      _initStreams();
+      _lastFilteredProducts = null;
+      _cachedGroupedProducts = const [];
+    }
+  }
+
+  void _rebuildCartQuantities() {
+    _cartItemQuantities.clear();
+    for (final item in _cart) {
+      _cartItemQuantities[item.product.id] =
+          (_cartItemQuantities[item.product.id] ?? 0.0) + item.quantity;
+    }
+  }
+
+  void _onSearchChanged(String val) {
+    _searchDebounce?.cancel();
+    if (val.isEmpty) {
+      setState(() => _searchQuery = '');
+    } else {
+      _searchDebounce = Timer(const Duration(milliseconds: 150), () {
+        if (mounted) {
+          setState(() => _searchQuery = val);
+        }
+      });
+    }
+  }
+
+  void _clearSearch() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    setState(() => _searchQuery = '');
   }
 
   void _onPermissionsChanged() {
     if (mounted) setState(() {});
   }
 
-  Stream<CashManagement?> _watchActiveShift() {
-    final regId = DevicePrefs.registerId ?? 'default-reg-001';
-    final empId = DevicePrefs.currentEmployeeId;
-    return PosDao(widget.db).watchActiveShift(regId, employeeId: empId);
-  }
-
   void _openOpenShiftModal() async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.posShiftOpen)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.posShiftOpen,
+    )) {
       final authorized = await ManagerOverrideDialog.requestOverride(
         context,
         widget.db,
@@ -73,7 +137,9 @@ class _CounterViewState extends State<CounterView> {
     final companyId = DevicePrefs.companyId ?? 'default-company-001';
     final storeId = DevicePrefs.storeId ?? 'default-store-001';
     final registerId = DevicePrefs.registerId ?? 'default-reg-001';
-    final regName = (registerId == 'default-reg-001' || registerId.startsWith('default-reg-'))
+    final regName =
+        (registerId == 'default-reg-001' ||
+            registerId.startsWith('default-reg-'))
         ? 'Main Checkout #1'
         : 'Register #${registerId.length > 4 ? registerId.substring(0, 4) : registerId}';
 
@@ -91,7 +157,9 @@ class _CounterViewState extends State<CounterView> {
   }
 
   void _openCloseShiftModal(CashManagement shift) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.posShiftClose)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.posShiftClose,
+    )) {
       final authorized = await ManagerOverrideDialog.requestOverride(
         context,
         widget.db,
@@ -102,7 +170,9 @@ class _CounterViewState extends State<CounterView> {
     if (!mounted) return;
 
     final registerId = DevicePrefs.registerId ?? 'default-reg-001';
-    final regName = (registerId == 'default-reg-001' || registerId.startsWith('default-reg-'))
+    final regName =
+        (registerId == 'default-reg-001' ||
+            registerId.startsWith('default-reg-'))
         ? 'Main Checkout #1'
         : 'Register #${registerId.length > 4 ? registerId.substring(0, 4) : registerId}';
 
@@ -119,13 +189,17 @@ class _CounterViewState extends State<CounterView> {
 
   @override
   void dispose() {
-    PermissionService.instance.changeNotifier.removeListener(_onPermissionsChanged);
+    _searchDebounce?.cancel();
+    PermissionService.instance.changeNotifier.removeListener(
+      _onPermissionsChanged,
+    );
     _searchController.dispose();
     super.dispose();
   }
 
   // Cart Computations
-  double get _cartSubtotal => _cart.fold(0.0, (sum, item) => sum + (item.quantity * item.unitPrice));
+  double get _cartSubtotal =>
+      _cart.fold(0.0, (sum, item) => sum + (item.quantity * item.unitPrice));
 
   double get _cartDiscountTotal {
     if (_discountType == 'pwd_senior_20') {
@@ -145,27 +219,15 @@ class _CounterViewState extends State<CounterView> {
     }
     if (grossTax <= 0) return 0.0;
     // Apply discount proportionally to taxable base
-    final discountRatio = _cartSubtotal > 0 ? (_cartDiscountTotal / _cartSubtotal).clamp(0.0, 1.0) : 0.0;
+    final discountRatio = _cartSubtotal > 0
+        ? (_cartDiscountTotal / _cartSubtotal).clamp(0.0, 1.0)
+        : 0.0;
     return grossTax * (1.0 - discountRatio);
   }
 
   double get _cartGrandTotal {
     final total = (_cartSubtotal - _cartDiscountTotal) + _cartTaxTotal;
     return total > 0 ? total : 0.0;
-  }
-
-  // Catalog Streams
-  Stream<List<Product>> _watchProducts() {
-    return (widget.db.select(widget.db.products)
-          ..where((p) => p.isActive.equals(true))
-          ..where((p) => p.isDeleted.equals(false)))
-        .watch();
-  }
-
-  Stream<List<ProductType>> _watchCategories() {
-    return (widget.db.select(widget.db.productTypes)
-          ..where((c) => c.isDeleted.equals(false)))
-        .watch();
   }
 
   // --- Cart Actions ---
@@ -189,10 +251,8 @@ class _CounterViewState extends State<CounterView> {
     if (groupedProduct.isMultiVariant) {
       final selectedVariant = await showDialog<Product?>(
         context: context,
-        builder: (ctx) => VariantSelectionDialog(
-          groupedProduct: groupedProduct,
-          cart: _cart,
-        ),
+        builder: (ctx) =>
+            VariantSelectionDialog(groupedProduct: groupedProduct, cart: _cart),
       );
       if (selectedVariant != null) {
         _onProductTapped(selectedVariant);
@@ -205,7 +265,8 @@ class _CounterViewState extends State<CounterView> {
   List<GroupedPosProduct> _groupPosProducts(List<Product> products) {
     final Map<String, List<Product>> groups = {};
     for (final p in products) {
-      final key = '${p.productTypeId ?? "all"}::${p.productName.trim().toLowerCase()}';
+      final key =
+          '${p.productTypeId ?? "all"}::${p.productName.trim().toLowerCase()}';
       groups.putIfAbsent(key, () => []).add(p);
     }
     return groups.values.map((group) {
@@ -218,18 +279,28 @@ class _CounterViewState extends State<CounterView> {
     }).toList();
   }
 
+  List<GroupedPosProduct> _getGroupedProducts(List<Product> products) {
+    if (identical(_lastFilteredProducts, products)) {
+      return _cachedGroupedProducts;
+    }
+    _lastFilteredProducts = products;
+    _cachedGroupedProducts = _groupPosProducts(products);
+    return _cachedGroupedProducts;
+  }
+
   void _addToCart(Product product, double qty) {
     setState(() {
-      final existingIndex = _cart.indexWhere((item) => item.product.id == product.id);
+      final existingIndex = _cart.indexWhere(
+        (item) => item.product.id == product.id,
+      );
       if (existingIndex >= 0) {
         _cart[existingIndex].quantity += qty;
       } else {
-        _cart.add(CartItem(
-          product: product,
-          quantity: qty,
-          unitPrice: product.price,
-        ));
+        _cart.add(
+          CartItem(product: product, quantity: qty, unitPrice: product.price),
+        );
       }
+      _rebuildCartQuantities();
     });
   }
 
@@ -242,12 +313,14 @@ class _CounterViewState extends State<CounterView> {
       } else {
         item.quantity = newQty;
       }
+      _rebuildCartQuantities();
     });
   }
 
   void _removeFromCart(int index) {
     setState(() {
       _cart.removeAt(index);
+      _rebuildCartQuantities();
     });
   }
 
@@ -267,6 +340,7 @@ class _CounterViewState extends State<CounterView> {
       _overallDiscount = 0.0;
       _discountType = 'none';
       _discountLabel = 'Discount';
+      _rebuildCartQuantities();
     });
   }
 
@@ -275,7 +349,9 @@ class _CounterViewState extends State<CounterView> {
     if (!PermissionService.instance.hasPermission(PosPermissions.posHoldCart)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to park carts.'),
+          content: Text(
+            'Access Denied: You do not have permission to park carts.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -286,17 +362,17 @@ class _CounterViewState extends State<CounterView> {
       _cart.clear();
       _overallDiscount = 0.0;
       _discountType = 'none';
+      _rebuildCartQuantities();
     });
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Cart parked (${_heldCarts.length} held). Ready for next customer.'),
+        content: Text(
+          'Cart parked (${_heldCarts.length} held). Ready for next customer.',
+        ),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'Recall',
-          onPressed: _recallHeldCart,
-        ),
+        action: SnackBarAction(label: 'Recall', onPressed: _recallHeldCart),
       ),
     );
   }
@@ -317,6 +393,7 @@ class _CounterViewState extends State<CounterView> {
       final recalled = _heldCarts.removeLast();
       _cart.clear();
       _cart.addAll(recalled);
+      _rebuildCartQuantities();
     });
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -329,6 +406,7 @@ class _CounterViewState extends State<CounterView> {
   }
 
   void _onBarcodeSubmitted(String query, List<Product> allProducts) {
+    _searchDebounce?.cancel();
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return;
 
@@ -355,7 +433,11 @@ class _CounterViewState extends State<CounterView> {
         SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.qr_code_2_rounded, color: Colors.white, size: 20),
+              const Icon(
+                Icons.qr_code_2_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -376,6 +458,9 @@ class _CounterViewState extends State<CounterView> {
   }
 
   void _openCustomerSelectionDialog() {
+    final customersStream = (widget.db.select(
+      widget.db.customers,
+    )..where((c) => c.isDeleted.equals(false))).watch();
     showDialog(
       context: context,
       builder: (dialogCtx) {
@@ -383,10 +468,18 @@ class _CounterViewState extends State<CounterView> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 24,
+              ),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480, maxHeight: 600),
+                constraints: const BoxConstraints(
+                  maxWidth: 480,
+                  maxHeight: 600,
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
@@ -400,7 +493,9 @@ class _CounterViewState extends State<CounterView> {
                             width: 38,
                             height: 38,
                             decoration: BoxDecoration(
-                              color: AppTheme.accentColor.withValues(alpha: 0.12),
+                              color: AppTheme.accentColor.withValues(
+                                alpha: 0.12,
+                              ),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
@@ -424,7 +519,10 @@ class _CounterViewState extends State<CounterView> {
                                 ),
                                 Text(
                                   'Attach customer for loyalty & credit account',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                               ],
                             ),
@@ -438,25 +536,35 @@ class _CounterViewState extends State<CounterView> {
                       const SizedBox(height: 12),
 
                       // Register New Customer Action Button (Gated by customersAdd permission)
-                      if (PermissionService.instance.hasPermission(PosPermissions.customersAdd)) ...[
+                      if (PermissionService.instance.hasPermission(
+                        PosPermissions.customersAdd,
+                      )) ...[
                         ElevatedButton.icon(
-                          key: const Key('cashier_register_new_customer_button'),
+                          key: const Key(
+                            'cashier_register_new_customer_button',
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.accentColor,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 11),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                           ),
                           icon: const Icon(Icons.person_add_rounded, size: 18),
                           label: const Text(
                             'Register New Customer',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
                           ),
                           onPressed: () async {
                             final navigator = Navigator.of(dialogCtx);
                             final newCustomer = await showDialog<Customer?>(
                               context: context,
-                              builder: (ctx) => AddCustomerDialog(db: widget.db),
+                              builder: (ctx) =>
+                                  AddCustomerDialog(db: widget.db),
                             );
                             if (newCustomer != null) {
                               setState(() => _selectedCustomer = newCustomer);
@@ -479,11 +587,16 @@ class _CounterViewState extends State<CounterView> {
                         ),
                         child: TextField(
                           key: const Key('cashier_customer_search_input'),
-                          onChanged: (val) => setDialogState(() => query = val.toLowerCase()),
+                          onChanged: (val) =>
+                              setDialogState(() => query = val.toLowerCase()),
                           decoration: const InputDecoration(
                             hintText: 'Search customer name or phone...',
                             hintStyle: TextStyle(fontSize: 12),
-                            prefixIcon: Icon(Icons.search_rounded, size: 18, color: Colors.grey),
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              size: 18,
+                              color: Colors.grey,
+                            ),
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.symmetric(vertical: 8),
                           ),
@@ -494,16 +607,17 @@ class _CounterViewState extends State<CounterView> {
                       // Customer List Stream
                       Expanded(
                         child: StreamBuilder<List<Customer>>(
-                          stream: (widget.db.select(widget.db.customers)
-                                ..where((c) => c.isDeleted.equals(false)))
-                              .watch(),
+                          stream: customersStream,
                           builder: (context, snapshot) {
                             final list = (snapshot.data ?? [])
-                              ..sort((a, b) => a.fullName.compareTo(b.fullName));
+                              ..sort(
+                                (a, b) => a.fullName.compareTo(b.fullName),
+                              );
                             final filtered = list.where((c) {
                               if (query.isEmpty) return true;
                               return c.fullName.toLowerCase().contains(query) ||
-                                  (c.phone?.toLowerCase().contains(query) ?? false);
+                                  (c.phone?.toLowerCase().contains(query) ??
+                                      false);
                             }).toList();
 
                             if (filtered.isEmpty) {
@@ -513,27 +627,39 @@ class _CounterViewState extends State<CounterView> {
                                       ? 'No registered customers yet.\nClick "Register New Customer" above!'
                                       : 'No customer matching "$query"',
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                               );
                             }
 
                             return ListView.separated(
-                              shrinkWrap: true,
                               itemCount: filtered.length,
-                              separatorBuilder: (_, i) => const Divider(height: 1, color: AppTheme.cardBorderColor),
+                              separatorBuilder: (_, i) => const Divider(
+                                height: 1,
+                                color: AppTheme.cardBorderColor,
+                              ),
                               itemBuilder: (ctx, idx) {
                                 final customer = filtered[idx];
-                                final isChosen = _selectedCustomer?.id == customer.id;
+                                final isChosen =
+                                    _selectedCustomer?.id == customer.id;
 
                                 return ListTile(
                                   dense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   leading: CircleAvatar(
                                     radius: 16,
-                                    backgroundColor: AppTheme.accentColor.withValues(alpha: 0.12),
+                                    backgroundColor: AppTheme.accentColor
+                                        .withValues(alpha: 0.12),
                                     child: Text(
-                                      customer.fullName.isNotEmpty ? customer.fullName[0].toUpperCase() : 'C',
+                                      customer.fullName.isNotEmpty
+                                          ? customer.fullName[0].toUpperCase()
+                                          : 'C',
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
@@ -546,20 +672,34 @@ class _CounterViewState extends State<CounterView> {
                                       Expanded(
                                         child: Text(
                                           customer.fullName,
-                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 1,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: Colors.amber.shade50,
-                                          borderRadius: BorderRadius.circular(4),
-                                          border: Border.all(color: Colors.amber.shade300),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.amber.shade300,
+                                          ),
                                         ),
                                         child: Text(
                                           customer.loyaltyTier,
-                                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber.shade900),
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.amber.shade900,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -569,18 +709,34 @@ class _CounterViewState extends State<CounterView> {
                                     style: const TextStyle(fontSize: 11),
                                   ),
                                   trailing: isChosen
-                                      ? const Icon(Icons.check_circle_rounded, color: AppTheme.inStockColor, size: 20)
+                                      ? const Icon(
+                                          Icons.check_circle_rounded,
+                                          color: AppTheme.inStockColor,
+                                          size: 20,
+                                        )
                                       : OutlinedButton(
-                                          key: Key('select_customer_${customer.id}'),
+                                          key: Key(
+                                            'select_customer_${customer.id}',
+                                          ),
                                           style: OutlinedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                                            visualDensity: VisualDensity.compact,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 2,
+                                            ),
+                                            visualDensity:
+                                                VisualDensity.compact,
                                           ),
                                           onPressed: () {
-                                            setState(() => _selectedCustomer = customer);
+                                            setState(
+                                              () =>
+                                                  _selectedCustomer = customer,
+                                            );
                                             Navigator.pop(dialogCtx);
                                           },
-                                          child: const Text('Select', style: TextStyle(fontSize: 11)),
+                                          child: const Text(
+                                            'Select',
+                                            style: TextStyle(fontSize: 11),
+                                          ),
                                         ),
                                 );
                               },
@@ -590,12 +746,23 @@ class _CounterViewState extends State<CounterView> {
                       ),
 
                       if (_selectedCustomer != null) ...[
-                        const Divider(height: 16, color: AppTheme.cardBorderColor),
+                        const Divider(
+                          height: 16,
+                          color: AppTheme.cardBorderColor,
+                        ),
                         TextButton.icon(
                           key: const Key('cashier_remove_customer_button'),
-                          style: TextButton.styleFrom(foregroundColor: Colors.red),
-                          icon: const Icon(Icons.person_remove_rounded, size: 16),
-                          label: const Text('Remove Customer from Active Sale', style: TextStyle(fontSize: 12)),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.red,
+                          ),
+                          icon: const Icon(
+                            Icons.person_remove_rounded,
+                            size: 16,
+                          ),
+                          label: const Text(
+                            'Remove Customer from Active Sale',
+                            style: TextStyle(fontSize: 12),
+                          ),
                           onPressed: () {
                             setState(() => _selectedCustomer = null);
                             Navigator.pop(dialogCtx);
@@ -618,7 +785,9 @@ class _CounterViewState extends State<CounterView> {
   // ==========================================
   Future<void> _openPriceOverride(int index) async {
     final item = _cart[index];
-    final hasPerm = PermissionService.instance.hasPermission(PosPermissions.posPriceOverride);
+    final hasPerm = PermissionService.instance.hasPermission(
+      PosPermissions.posPriceOverride,
+    );
     if (!hasPerm) {
       final authorized = await ManagerOverrideDialog.requestOverride(
         context,
@@ -660,6 +829,7 @@ class _CounterViewState extends State<CounterView> {
     if (newQty != null && newQty > 0) {
       setState(() {
         _cart[index].quantity = newQty;
+        _rebuildCartQuantities();
       });
     }
   }
@@ -668,8 +838,12 @@ class _CounterViewState extends State<CounterView> {
   // Custom Discount (% or ₱ fixed) — replaces preset-only toggle
   // ==========================================
   Future<void> _openDiscountDialog({VoidCallback? onMutate}) async {
-    final hasPresetPerm = PermissionService.instance.hasPermission(PosPermissions.posDiscountPreset);
-    final hasCustomPerm = PermissionService.instance.hasPermission(PosPermissions.posDiscountCustom);
+    final hasPresetPerm = PermissionService.instance.hasPermission(
+      PosPermissions.posDiscountPreset,
+    );
+    final hasCustomPerm = PermissionService.instance.hasPermission(
+      PosPermissions.posDiscountCustom,
+    );
 
     // If no discount perms at all, require manager override
     if (!hasPresetPerm && !hasCustomPerm && _discountType == 'none') {
@@ -702,12 +876,14 @@ class _CounterViewState extends State<CounterView> {
     );
 
     if (result != null && mounted) {
-      if (result.type == 'percent' && result.inputValue == DevicePrefs.seniorPwdDiscountPercent) {
+      if (result.type == 'percent' &&
+          result.inputValue == DevicePrefs.seniorPwdDiscountPercent) {
         // Senior/PWD preset
         setState(() {
           _discountType = 'pwd_senior_20';
           _overallDiscount = 0.0;
-          _discountLabel = 'Senior/PWD (${DevicePrefs.seniorPwdDiscountPercent.toStringAsFixed(0)}%)';
+          _discountLabel =
+              'Senior/PWD (${DevicePrefs.seniorPwdDiscountPercent.toStringAsFixed(0)}%)';
         });
       } else {
         // Custom discount — check posDiscountCustom
@@ -774,7 +950,9 @@ class _CounterViewState extends State<CounterView> {
     if (!PermissionService.instance.hasPermission(PosPermissions.posSell)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to process checkouts.'),
+          content: Text(
+            'Access Denied: You do not have permission to process checkouts.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -804,6 +982,7 @@ class _CounterViewState extends State<CounterView> {
             _discountType = 'none';
             _discountLabel = 'Discount';
             _selectedCustomer = null;
+            _rebuildCartQuantities();
           });
         },
       ),
@@ -842,9 +1021,7 @@ class _CounterViewState extends State<CounterView> {
                     ),
                   ),
                   _buildCartHeader(onMutate: mutate),
-                  Expanded(
-                    child: _buildCartItemList(onMutate: mutate),
-                  ),
+                  Expanded(child: _buildCartItemList(onMutate: mutate)),
                   _buildCartSummary(
                     shiftId: shiftId,
                     onCheckoutTriggered: () {
@@ -865,25 +1042,28 @@ class _CounterViewState extends State<CounterView> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<CashManagement?>(
-      stream: _watchActiveShift(),
+      stream: _activeShiftStream,
       builder: (context, shiftSnapshot) {
         final activeShift = shiftSnapshot.data;
 
         return StreamBuilder<List<ProductType>>(
-          stream: _watchCategories(),
+          stream: _categoriesStream,
           builder: (context, catSnapshot) {
             final categories = catSnapshot.data ?? [];
 
             return StreamBuilder<List<Product>>(
-              stream: _watchProducts(),
+              stream: _productsStream,
               builder: (context, prodSnapshot) {
                 final allProducts = prodSnapshot.data ?? [];
 
                 // Filter products
                 final filteredProducts = allProducts.where((p) {
-                  final matchesCat = _selectedCategoryId == 'all' || p.productTypeId == _selectedCategoryId;
+                  final matchesCat =
+                      _selectedCategoryId == 'all' ||
+                      p.productTypeId == _selectedCategoryId;
                   final q = _searchQuery.toLowerCase();
-                  final matchesSearch = q.isEmpty ||
+                  final matchesSearch =
+                      q.isEmpty ||
                       p.productName.toLowerCase().contains(q) ||
                       (p.variantName?.toLowerCase().contains(q) ?? false) ||
                       (p.sku?.toLowerCase().contains(q) ?? false) ||
@@ -891,15 +1071,25 @@ class _CounterViewState extends State<CounterView> {
                   return matchesCat && matchesSearch;
                 }).toList();
 
-                final groupedProducts = _groupPosProducts(filteredProducts);
+                final groupedProducts = _getGroupedProducts(filteredProducts);
 
                 return LayoutBuilder(
                   builder: (context, constraints) {
                     final isTablet = constraints.maxWidth >= 720;
                     if (isTablet) {
-                      return _buildTabletLayout(categories, groupedProducts, allProducts, activeShift);
+                      return _buildTabletLayout(
+                        categories,
+                        groupedProducts,
+                        allProducts,
+                        activeShift,
+                      );
                     } else {
-                      return _buildMobileLayout(categories, groupedProducts, allProducts, activeShift);
+                      return _buildMobileLayout(
+                        categories,
+                        groupedProducts,
+                        allProducts,
+                        activeShift,
+                      );
                     }
                   },
                 );
@@ -931,14 +1121,16 @@ class _CounterViewState extends State<CounterView> {
               children: [
                 _buildTopHeader(allProducts, activeShift),
                 _buildCategorySelector(categories),
-                Expanded(
-                  child: _buildProductGrid(products, crossAxisCount: 3),
-                ),
+                Expanded(child: _buildProductGrid(products, crossAxisCount: 3)),
               ],
             ),
           ),
           // Divider
-          const VerticalDivider(width: 1, thickness: 1, color: AppTheme.cardBorderColor),
+          const VerticalDivider(
+            width: 1,
+            thickness: 1,
+            color: AppTheme.cardBorderColor,
+          ),
           // Right Pane: Active Cart Invoice (Flex 2)
           Expanded(
             flex: 2,
@@ -973,9 +1165,7 @@ class _CounterViewState extends State<CounterView> {
         children: [
           _buildTopHeader(allProducts, activeShift),
           _buildCategorySelector(categories),
-          Expanded(
-            child: _buildProductGrid(products, crossAxisCount: 2),
-          ),
+          Expanded(child: _buildProductGrid(products, crossAxisCount: 2)),
           _buildMobileStickyCartBar(activeShift?.id),
         ],
       ),
@@ -985,7 +1175,10 @@ class _CounterViewState extends State<CounterView> {
   // ==========================================
   // Top Header (Shift & Barcode/Search Bar)
   // ==========================================
-  Widget _buildTopHeader(List<Product> allProducts, CashManagement? activeShift) {
+  Widget _buildTopHeader(
+    List<Product> allProducts,
+    CashManagement? activeShift,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       color: Colors.white,
@@ -1006,12 +1199,18 @@ class _CounterViewState extends State<CounterView> {
                   width: 26,
                   height: 26,
                   decoration: BoxDecoration(
-                    color: activeShift != null ? AppTheme.inStockBg : Colors.amber.shade50,
+                    color: activeShift != null
+                        ? AppTheme.inStockBg
+                        : Colors.amber.shade50,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Icon(
-                    activeShift != null ? Icons.storefront_rounded : Icons.lock_outline_rounded,
-                    color: activeShift != null ? AppTheme.inStockColor : Colors.amber.shade900,
+                    activeShift != null
+                        ? Icons.storefront_rounded
+                        : Icons.lock_outline_rounded,
+                    color: activeShift != null
+                        ? AppTheme.inStockColor
+                        : Colors.amber.shade900,
                     size: 15,
                   ),
                 ),
@@ -1028,7 +1227,8 @@ class _CounterViewState extends State<CounterView> {
                         final num = int.tryParse(suffix);
                         regLabel = 'Register #${num ?? suffix}';
                       } else {
-                        regLabel = 'Register #${regId.length > 4 ? regId.substring(0, 4) : regId}';
+                        regLabel =
+                            'Register #${regId.length > 4 ? regId.substring(0, 4) : regId}';
                       }
                       return Text(
                         activeShift != null
@@ -1037,7 +1237,9 @@ class _CounterViewState extends State<CounterView> {
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.bold,
-                          color: activeShift != null ? AppTheme.primaryColor : Colors.amber.shade900,
+                          color: activeShift != null
+                              ? AppTheme.primaryColor
+                              : Colors.amber.shade900,
                         ),
                         overflow: TextOverflow.ellipsis,
                       );
@@ -1053,7 +1255,11 @@ class _CounterViewState extends State<CounterView> {
                     height: 24,
                     child: PopupMenuButton<String>(
                       key: const Key('shift_cash_adjustments_menu'),
-                      icon: const Icon(Icons.more_vert_rounded, size: 17, color: AppTheme.primaryColor),
+                      icon: const Icon(
+                        Icons.more_vert_rounded,
+                        size: 17,
+                        color: AppTheme.primaryColor,
+                      ),
                       tooltip: 'Cash Drawer Adjustments',
                       padding: EdgeInsets.zero,
                       onSelected: (val) {
@@ -1065,9 +1271,16 @@ class _CounterViewState extends State<CounterView> {
                           value: 'pay_in',
                           child: Row(
                             children: [
-                              Icon(Icons.add_circle_outline_rounded, color: Colors.green, size: 18),
+                              Icon(
+                                Icons.add_circle_outline_rounded,
+                                color: Colors.green,
+                                size: 18,
+                              ),
                               SizedBox(width: 8),
-                              Text('Cash In / Pay In', style: TextStyle(fontSize: 12)),
+                              Text(
+                                'Cash In / Pay In',
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ],
                           ),
                         ),
@@ -1075,9 +1288,16 @@ class _CounterViewState extends State<CounterView> {
                           value: 'pay_out',
                           child: Row(
                             children: [
-                              Icon(Icons.remove_circle_outline_rounded, color: Colors.red, size: 18),
+                              Icon(
+                                Icons.remove_circle_outline_rounded,
+                                color: Colors.red,
+                                size: 18,
+                              ),
                               SizedBox(width: 8),
-                              Text('Cash Out / Pay Out', style: TextStyle(fontSize: 12)),
+                              Text(
+                                'Cash Out / Pay Out',
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ],
                           ),
                         ),
@@ -1087,31 +1307,50 @@ class _CounterViewState extends State<CounterView> {
                   TextButton.icon(
                     key: const Key('close_shift_button'),
                     style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
                       visualDensity: VisualDensity.compact,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       foregroundColor: AppTheme.primaryColor,
                     ),
                     icon: const Icon(Icons.logout_rounded, size: 13),
-                    label: const Text('Close Shift', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'Close Shift',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: () => _openCloseShiftModal(activeShift),
                   ),
-                ]
-                else ...[
+                ] else ...[
                   const SizedBox(width: 4),
                   ElevatedButton.icon(
                     key: const Key('open_shift_button'),
                     style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       visualDensity: VisualDensity.compact,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       backgroundColor: AppTheme.accentColor,
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
                     ),
                     icon: const Icon(Icons.lock_open_rounded, size: 13),
-                    label: const Text('Open Shift', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'Open Shift',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     onPressed: _openOpenShiftModal,
                   ),
                 ],
@@ -1170,8 +1409,13 @@ class _CounterViewState extends State<CounterView> {
                           const SizedBox(width: 4),
                           GestureDetector(
                             key: const Key('clear_customer_button'),
-                            onTap: () => setState(() => _selectedCustomer = null),
-                            child: const Icon(Icons.close_rounded, size: 14, color: Colors.grey),
+                            onTap: () =>
+                                setState(() => _selectedCustomer = null),
+                            child: const Icon(
+                              Icons.close_rounded,
+                              size: 14,
+                              color: Colors.grey,
+                            ),
                           ),
                         ],
                       ],
@@ -1193,19 +1437,20 @@ class _CounterViewState extends State<CounterView> {
                   child: TextField(
                     key: const Key('counter_barcode_search_input'),
                     controller: _searchController,
-                    onChanged: (val) => setState(() => _searchQuery = val),
+                    onChanged: _onSearchChanged,
                     onSubmitted: (val) => _onBarcodeSubmitted(val, allProducts),
                     decoration: InputDecoration(
                       hintText: 'Scan Barcode or Search Items...',
                       hintStyle: const TextStyle(fontSize: 13),
-                      prefixIcon: const Icon(Icons.qr_code_scanner_rounded, color: AppTheme.accentColor, size: 20),
+                      prefixIcon: const Icon(
+                        Icons.qr_code_scanner_rounded,
+                        color: AppTheme.accentColor,
+                        size: 20,
+                      ),
                       suffixIcon: _searchQuery.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _searchQuery = '');
-                              },
+                              onPressed: _clearSearch,
                             )
                           : null,
                       border: InputBorder.none,
@@ -1223,12 +1468,28 @@ class _CounterViewState extends State<CounterView> {
                   OutlinedButton.icon(
                     key: const Key('hold_cart_button'),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    icon: const Icon(Icons.pause_circle_outline_rounded, size: 18),
-                    label: const Text('Hold', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                    onPressed: _cart.isNotEmpty ? _holdCart : (_heldCarts.isNotEmpty ? _recallHeldCart : null),
+                    icon: const Icon(
+                      Icons.pause_circle_outline_rounded,
+                      size: 18,
+                    ),
+                    label: const Text(
+                      'Hold',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    onPressed: _cart.isNotEmpty
+                        ? _holdCart
+                        : (_heldCarts.isNotEmpty ? _recallHeldCart : null),
                   ),
                   if (_heldCarts.isNotEmpty)
                     Positioned(
@@ -1242,7 +1503,11 @@ class _CounterViewState extends State<CounterView> {
                         ),
                         child: Text(
                           '${_heldCarts.length}',
-                          style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -1254,15 +1519,25 @@ class _CounterViewState extends State<CounterView> {
               FilledButton.icon(
                 key: const Key('counter_cart_button'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: _cart.isNotEmpty ? AppTheme.accentColor : AppTheme.primaryColor,
+                  backgroundColor: _cart.isNotEmpty
+                      ? AppTheme.accentColor
+                      : AppTheme.primaryColor,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 icon: const Icon(Icons.shopping_cart_outlined, size: 18),
                 label: Text(
                   'Cart (${_cart.length})',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 onPressed: () => _openMobileCartSheet(context, activeShift?.id),
               ),
@@ -1306,7 +1581,9 @@ class _CounterViewState extends State<CounterView> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
                 side: BorderSide(
-                  color: isSelected ? AppTheme.accentColor : AppTheme.cardBorderColor,
+                  color: isSelected
+                      ? AppTheme.accentColor
+                      : AppTheme.cardBorderColor,
                 ),
               ),
               showCheckmark: false,
@@ -1324,13 +1601,20 @@ class _CounterViewState extends State<CounterView> {
   // ==========================================
   // Product Catalog Grid (Tactile POS Cards)
   // ==========================================
-  Widget _buildProductGrid(List<GroupedPosProduct> products, {required int crossAxisCount}) {
+  Widget _buildProductGrid(
+    List<GroupedPosProduct> products, {
+    required int crossAxisCount,
+  }) {
     if (products.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search_off_rounded, size: 48, color: Colors.grey.shade400),
+            Icon(
+              Icons.search_off_rounded,
+              size: 48,
+              color: Colors.grey.shade400,
+            ),
             const SizedBox(height: 10),
             Text(
               'No matching products found',
@@ -1356,169 +1640,213 @@ class _CounterViewState extends State<CounterView> {
         final primary = groupedProduct.primaryProduct;
         final isFraction = groupedProduct.sellBy == 'fraction';
 
-        final variantIds = groupedProduct.variants.map((v) => v.id).toSet();
-        final itemsInCart = _cart.where((item) => variantIds.contains(item.product.id)).toList();
-        final inCart = itemsInCart.isNotEmpty;
-        final totalCartQty = itemsInCart.fold(0.0, (sum, item) => sum + item.quantity);
+        double totalCartQty = 0.0;
+        for (final v in groupedProduct.variants) {
+          final q = _cartItemQuantities[v.id];
+          if (q != null) totalCartQty += q;
+        }
+        final inCart = totalCartQty > 0;
 
-        return Material(
-          color: inCart ? AppTheme.accentColor.withValues(alpha: 0.05) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            key: Key('counter_product_card_${primary.id}'),
+        return RepaintBoundary(
+          child: Material(
+            color: inCart
+                ? AppTheme.accentColor.withValues(alpha: 0.05)
+                : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            onTap: () => _onGroupedProductTapped(groupedProduct),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: inCart ? AppTheme.accentColor : AppTheme.cardBorderColor,
-                  width: inCart ? 2.0 : 1.0,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Top badge & In-Cart Quantity Indicator
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      if (isMulti)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Colors.amber.shade400, width: 0.8),
-                          ),
-                          child: Text(
-                            '${groupedProduct.variants.length} SIZES',
-                            style: TextStyle(
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber.shade900,
-                            ),
-                          ),
-                        )
-                      else
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: isFraction
-                                ? AppTheme.accentColor.withValues(alpha: 0.12)
-                                : Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            isFraction ? 'WEIGHED' : 'UNIT',
-                            style: TextStyle(
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.bold,
-                              color: isFraction ? AppTheme.accentColor : Colors.black54,
-                            ),
-                          ),
-                        ),
-                      if (inCart)
-                        Container(
-                          key: Key('product_cart_badge_${primary.id}'),
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: AppTheme.accentColor,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            isFraction ? '${totalCartQty.toStringAsFixed(1)}kg' : 'x${totalCartQty.toInt()}',
-                            style: const TextStyle(
-                              fontSize: 9.0,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        )
-                      else
-                        Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Icon(Icons.add_rounded, size: 13, color: AppTheme.primaryColor),
-                        ),
-                    ],
+            child: InkWell(
+              key: Key('counter_product_card_${primary.id}'),
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _onGroupedProductTapped(groupedProduct),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: inCart
+                        ? AppTheme.accentColor
+                        : AppTheme.cardBorderColor,
+                    width: inCart ? 2.0 : 1.0,
                   ),
-                  if (primary.imagePath != null || primary.imageUrl != null) ...[
-                    const SizedBox(height: 4),
-                    Expanded(
-                      child: Center(
-                        child: ProductThumbnail(
-                          imagePath: primary.imagePath,
-                          imageUrl: primary.imageUrl,
-                          width: double.infinity,
-                          height: double.infinity,
-                          borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Top badge & In-Cart Quantity Indicator
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        if (isMulti)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.shade50,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: Colors.amber.shade400,
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Text(
+                              '${groupedProduct.variants.length} SIZES',
+                              style: TextStyle(
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amber.shade900,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4,
+                              vertical: 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isFraction
+                                  ? AppTheme.accentColor.withValues(alpha: 0.12)
+                                  : Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isFraction ? 'WEIGHED' : 'UNIT',
+                              style: TextStyle(
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.bold,
+                                color: isFraction
+                                    ? AppTheme.accentColor
+                                    : Colors.black54,
+                              ),
+                            ),
+                          ),
+                        if (inCart)
+                          Container(
+                            key: Key('product_cart_badge_${primary.id}'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.accentColor,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              isFraction
+                                  ? '${totalCartQty.toStringAsFixed(1)}kg'
+                                  : 'x${totalCartQty.toInt()}',
+                              style: const TextStyle(
+                                fontSize: 9.0,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Icon(
+                              Icons.add_rounded,
+                              size: 13,
+                              color: AppTheme.primaryColor,
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (primary.imagePath != null ||
+                        primary.imageUrl != null) ...[
+                      const SizedBox(height: 4),
+                      Expanded(
+                        child: Center(
+                          child: ProductThumbnail(
+                            imagePath: primary.imagePath,
+                            imageUrl: primary.imageUrl,
+                            width: double.infinity,
+                            height: double.infinity,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                  ] else ...[
-                    const Spacer(),
-                  ],
+                      const SizedBox(height: 4),
+                    ] else ...[
+                      const Spacer(),
+                    ],
 
-                  // Name & Variant
-                  Text(
-                    groupedProduct.productName,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: inCart ? AppTheme.accentColor : AppTheme.primaryColor,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (isMulti) ...[
-                    const SizedBox(height: 2),
+                    // Name & Variant
                     Text(
-                      groupedProduct.variants
-                          .map((v) => (v.variantName != null && v.variantName!.isNotEmpty) ? v.variantName! : 'Std')
-                          .join(', '),
-                      style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
-                      maxLines: 1,
+                      groupedProduct.productName,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: inCart
+                            ? AppTheme.accentColor
+                            : AppTheme.primaryColor,
+                      ),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      groupedProduct.minPrice == groupedProduct.maxPrice
-                          ? '₱${groupedProduct.minPrice.toStringAsFixed(2)} / ${groupedProduct.unit}'
-                          : 'From ₱${groupedProduct.minPrice.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  ] else ...[
-                    if (primary.variantName != null && primary.variantName!.isNotEmpty) ...[
+                    if (isMulti) ...[
                       const SizedBox(height: 2),
                       Text(
-                        primary.variantName!,
-                        style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+                        groupedProduct.variants
+                            .map(
+                              (v) =>
+                                  (v.variantName != null &&
+                                      v.variantName!.isNotEmpty)
+                                  ? v.variantName!
+                                  : 'Std',
+                            )
+                            .join(', '),
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: Colors.grey.shade600,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                    const SizedBox(height: 4),
-                    Text(
-                      '₱${primary.price.toStringAsFixed(2)} / ${primary.unit}',
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primaryColor,
+                      const SizedBox(height: 4),
+                      Text(
+                        groupedProduct.minPrice == groupedProduct.maxPrice
+                            ? '₱${groupedProduct.minPrice.toStringAsFixed(2)} / ${groupedProduct.unit}'
+                            : 'From ₱${groupedProduct.minPrice.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
                       ),
-                    ),
+                    ] else ...[
+                      if (primary.variantName != null &&
+                          primary.variantName!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          primary.variantName!,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        '₱${primary.price.toStringAsFixed(2)} / ${primary.unit}',
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -1544,7 +1872,11 @@ class _CounterViewState extends State<CounterView> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.shopping_bag_outlined, size: 20, color: AppTheme.primaryColor),
+                const Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 20,
+                  color: AppTheme.primaryColor,
+                ),
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
@@ -1586,11 +1918,19 @@ class _CounterViewState extends State<CounterView> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.shopping_cart_outlined, size: 48, color: Colors.grey.shade300),
+            Icon(
+              Icons.shopping_cart_outlined,
+              size: 48,
+              color: Colors.grey.shade300,
+            ),
             const SizedBox(height: 10),
             Text(
               'Cart is empty',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey.shade600),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade600,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
@@ -1605,7 +1945,8 @@ class _CounterViewState extends State<CounterView> {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       itemCount: _cart.length,
-      separatorBuilder: (context, index) => const Divider(height: 12, color: AppTheme.cardBorderColor),
+      separatorBuilder: (context, index) =>
+          const Divider(height: 12, color: AppTheme.cardBorderColor),
       itemBuilder: (context, index) {
         final item = _cart[index];
         final step = item.isFractional ? 0.250 : 1.0;
@@ -1622,11 +1963,15 @@ class _CounterViewState extends State<CounterView> {
                   children: [
                     Text(
                       item.product.productName,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (item.product.variantName != null && item.product.variantName!.isNotEmpty)
+                    if (item.product.variantName != null &&
+                        item.product.variantName!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 1, bottom: 1),
                         child: Text(
@@ -1666,9 +2011,14 @@ class _CounterViewState extends State<CounterView> {
                           if (item.unitPrice != item.product.price) ...[
                             const SizedBox(width: 3),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 3,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
-                                color: AppTheme.accentColor.withValues(alpha: 0.12),
+                                color: AppTheme.accentColor.withValues(
+                                  alpha: 0.12,
+                                ),
                                 borderRadius: BorderRadius.circular(3),
                               ),
                               child: const Text(
@@ -1695,7 +2045,10 @@ class _CounterViewState extends State<CounterView> {
                   IconButton(
                     key: Key('stepper_minus_$index'),
                     visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.remove_circle_outline_rounded, size: 20),
+                    icon: const Icon(
+                      Icons.remove_circle_outline_rounded,
+                      size: 20,
+                    ),
                     onPressed: () {
                       _updateQuantity(index, -step);
                       onMutate?.call();
@@ -1710,7 +2063,10 @@ class _CounterViewState extends State<CounterView> {
                     },
                     child: Container(
                       constraints: const BoxConstraints(minWidth: 44),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(6),
@@ -1721,14 +2077,21 @@ class _CounterViewState extends State<CounterView> {
                             ? '${item.quantity.toStringAsFixed(3)} kg'
                             : '${item.quantity.toInt()} pcs',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
                   IconButton(
                     key: Key('stepper_plus_$index'),
                     visualDensity: VisualDensity.compact,
-                    icon: const Icon(Icons.add_circle_outline_rounded, size: 20, color: AppTheme.accentColor),
+                    icon: const Icon(
+                      Icons.add_circle_outline_rounded,
+                      size: 20,
+                      color: AppTheme.accentColor,
+                    ),
                     onPressed: () {
                       _updateQuantity(index, step);
                       onMutate?.call();
@@ -1743,7 +2106,10 @@ class _CounterViewState extends State<CounterView> {
                 child: Text(
                   '₱${item.rawTotal.toStringAsFixed(2)}',
                   textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
 
@@ -1770,15 +2136,9 @@ class _CounterViewState extends State<CounterView> {
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
+        border: Border(top: BorderSide(color: AppTheme.cardBorderColor)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1787,12 +2147,17 @@ class _CounterViewState extends State<CounterView> {
           _buildSummaryRow('Subtotal', '₱${_cartSubtotal.toStringAsFixed(2)}'),
           if (_cartDiscountTotal > 0)
             _buildSummaryRow(
-              _discountType == 'pwd_senior_20' ? 'Discount (Senior/PWD)' : _discountLabel,
+              _discountType == 'pwd_senior_20'
+                  ? 'Discount (Senior/PWD)'
+                  : _discountLabel,
               '-₱${_cartDiscountTotal.toStringAsFixed(2)}',
               isDiscount: true,
             ),
           if (_cartTaxTotal > 0)
-            _buildSummaryRow('VAT / Tax', '+₱${_cartTaxTotal.toStringAsFixed(2)}'),
+            _buildSummaryRow(
+              'VAT / Tax',
+              '+₱${_cartTaxTotal.toStringAsFixed(2)}',
+            ),
           const Divider(height: 14),
 
           // Grand Total
@@ -1801,7 +2166,11 @@ class _CounterViewState extends State<CounterView> {
             children: [
               const Text(
                 'Total Due',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryColor,
+                ),
               ),
               Flexible(
                 child: FittedBox(
@@ -1831,8 +2200,12 @@ class _CounterViewState extends State<CounterView> {
                 child: IconButton.outlined(
                   key: const Key('discount_toggle_button'),
                   icon: Icon(
-                    _discountType != 'none' ? Icons.discount_rounded : Icons.discount_outlined,
-                    color: _discountType != 'none' ? AppTheme.accentColor : Colors.black54,
+                    _discountType != 'none'
+                        ? Icons.discount_rounded
+                        : Icons.discount_outlined,
+                    color: _discountType != 'none'
+                        ? AppTheme.accentColor
+                        : Colors.black54,
                     size: 20,
                   ),
                   onPressed: () async {
@@ -1845,14 +2218,15 @@ class _CounterViewState extends State<CounterView> {
                       onMutate?.call();
                       return;
                     }
-                    final hasPresetPerm =
-                        PermissionService.instance.hasPermission(PosPermissions.posDiscountPreset);
+                    final hasPresetPerm = PermissionService.instance
+                        .hasPermission(PosPermissions.posDiscountPreset);
                     if (!hasPresetPerm) {
-                      final authorized = await ManagerOverrideDialog.requestOverride(
-                        context,
-                        widget.db,
-                        'Authorize ${DevicePrefs.seniorPwdDiscountPercent.toStringAsFixed(0)}% Senior/PWD Discount',
-                      );
+                      final authorized =
+                          await ManagerOverrideDialog.requestOverride(
+                            context,
+                            widget.db,
+                            'Authorize ${DevicePrefs.seniorPwdDiscountPercent.toStringAsFixed(0)}% Senior/PWD Discount',
+                          );
                       if (!authorized || !mounted) return;
                     }
                     setState(() {
@@ -1868,7 +2242,9 @@ class _CounterViewState extends State<CounterView> {
               const SizedBox(width: 8),
 
               // Charge Button (strictly guarded by posSell permission)
-              if (PermissionService.instance.hasPermission(PosPermissions.posSell))
+              if (PermissionService.instance.hasPermission(
+                PosPermissions.posSell,
+              ))
                 Expanded(
                   child: ElevatedButton(
                     key: const Key('charge_checkout_button'),
@@ -1876,7 +2252,9 @@ class _CounterViewState extends State<CounterView> {
                       backgroundColor: AppTheme.accentColor,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                     onPressed: _cart.isNotEmpty
                         ? () {
@@ -1889,7 +2267,10 @@ class _CounterViewState extends State<CounterView> {
                         : null,
                     child: Text(
                       'Charge ₱${_cartGrandTotal.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 )
@@ -1897,7 +2278,10 @@ class _CounterViewState extends State<CounterView> {
                 Expanded(
                   child: Container(
                     key: const Key('checkout_restricted_notice'),
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                      horizontal: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(10),
@@ -1906,7 +2290,11 @@ class _CounterViewState extends State<CounterView> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.lock_outline_rounded, size: 16, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.lock_outline_rounded,
+                          size: 16,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           'Checkout Restricted',
@@ -1927,13 +2315,20 @@ class _CounterViewState extends State<CounterView> {
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, {bool isDiscount = false}) {
+  Widget _buildSummaryRow(
+    String label,
+    String value, {
+    bool isDiscount = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
           Text(
             value,
             style: TextStyle(
@@ -1955,16 +2350,9 @@ class _CounterViewState extends State<CounterView> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        border: const Border(top: BorderSide(color: AppTheme.cardBorderColor)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
-          ),
-        ],
+        border: Border(top: BorderSide(color: AppTheme.cardBorderColor)),
       ),
       child: SafeArea(
         top: false,
@@ -1977,7 +2365,10 @@ class _CounterViewState extends State<CounterView> {
                 onTap: () => _openMobileCartSheet(context, shiftId),
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
@@ -1985,22 +2376,40 @@ class _CounterViewState extends State<CounterView> {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.shopping_bag_outlined, size: 14, color: Colors.grey.shade700),
+                          Icon(
+                            Icons.shopping_bag_outlined,
+                            size: 14,
+                            color: Colors.grey.shade700,
+                          ),
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              hasItems ? '${_cart.length} item(s)' : 'Cart empty',
-                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                              hasItems
+                                  ? '${_cart.length} item(s)'
+                                  : 'Cart empty',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 4),
-                          const Icon(Icons.keyboard_arrow_up_rounded, size: 18, color: AppTheme.accentColor),
+                          const Icon(
+                            Icons.keyboard_arrow_up_rounded,
+                            size: 18,
+                            color: AppTheme.accentColor,
+                          ),
                         ],
                       ),
                       Text(
                         '₱${_cartGrandTotal.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                        ),
                       ),
                     ],
                   ),
@@ -2008,27 +2417,46 @@ class _CounterViewState extends State<CounterView> {
               ),
             ),
             // Checkout or View Cart Action
-            if (hasItems && PermissionService.instance.hasPermission(PosPermissions.posSell))
+            if (hasItems &&
+                PermissionService.instance.hasPermission(
+                  PosPermissions.posSell,
+                ))
               ElevatedButton(
                 key: const Key('mobile_checkout_button'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.accentColor,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: () => _openCheckoutModal(shiftId),
-                child: const Text('Checkout', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                child: const Text(
+                  'Checkout',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
               )
             else
               OutlinedButton.icon(
                 key: const Key('mobile_view_empty_cart_button'),
                 style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 icon: const Icon(Icons.shopping_cart_outlined, size: 16),
-                label: const Text('View Cart', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'View Cart',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
                 onPressed: () => _openMobileCartSheet(context, shiftId),
               ),
           ],
