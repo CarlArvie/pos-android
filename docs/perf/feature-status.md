@@ -7,4 +7,3 @@
 | counter | 2026-09-28 | ui, logic, db | `perf/counter` | `[Verified]` | Optimized (persistent streams, O(1) cart lookups, debounced search, RepaintBoundaries, responsive checkout tender layout, 132 passing tests) | None |
 | reports | 2026-09-28 | ui, logic, db | `perf/reports` | `[Verified]` | Optimized (chunked queries >1000 txs, selective dimension loading, cached future, O(I+P) linear valuation, no BoxShadow, 135 passing tests) | None |
 | staff-cashier | 2026-10-03 | ui, logic, db | `perf/staff-cashier` | `[Verified]` | Optimized (reactive employee stream, search & role filter, removed LayoutBuilder and BoxShadow, 141 passing tests) | None |
-| store-location | 2026-10-03 | ui, logic, db | `perf/store-location` | `[Verified]` | Optimized (batch query loads 2 queries vs 1+N, 360x640 zero overflow, removed dialog shrinkWrap, search & RepaintBoundary, 141 passing tests) | None |
