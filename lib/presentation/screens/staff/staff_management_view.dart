@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter/material.dart';
 import '../../../data/local/database.dart';
 import '../../../core/device_prefs.dart';
@@ -23,6 +25,12 @@ class _StaffManagementViewState extends State<StaffManagementView>
   late TabController _tabController;
   List<Employee> _employees = [];
   bool _isLoading = true;
+  StreamSubscription<List<Employee>>? _employeesSubscription;
+
+  // Search and role filter state
+  String _searchQuery = '';
+  String _selectedRoleFilter = 'All';
+  final TextEditingController _searchController = TextEditingController();
 
   // Roles & Permissions state
   String _selectedRole = PosPermissions.roleCashier;
@@ -34,23 +42,72 @@ class _StaffManagementViewState extends State<StaffManagementView>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadEmployees();
+    _initEmployeesStream();
     _loadRolePermissions(_selectedRole);
 
     // Listen to permission changes globally
-    PermissionService.instance.changeNotifier.addListener(_onPermissionsChanged);
+    PermissionService.instance.changeNotifier.addListener(
+      _onPermissionsChanged,
+    );
+  }
+
+  void _initEmployeesStream() {
+    final storeId = DevicePrefs.storeId;
+    if (storeId != null) {
+      final query = widget.db.select(widget.db.employees)
+        ..where((e) => e.storeId.equals(storeId))
+        ..orderBy([(e) => OrderingTerm.asc(e.firstName)]);
+
+      // Initial fast load
+      query.get().then((list) {
+        if (mounted) {
+          setState(() {
+            _employees = list;
+            _isLoading = false;
+          });
+        }
+      });
+
+      // Stream subscription for realtime/sync reactivity
+      _employeesSubscription = query.watch().listen((list) {
+        if (mounted) {
+          setState(() {
+            _employees = list;
+            _isLoading = false;
+          });
+        }
+      });
+    } else {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant StaffManagementView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.db != widget.db) {
+      _employeesSubscription?.cancel();
+      _initEmployeesStream();
+    }
   }
 
   @override
   void dispose() {
-    PermissionService.instance.changeNotifier.removeListener(_onPermissionsChanged);
+    _employeesSubscription?.cancel();
+    _searchController.dispose();
+    PermissionService.instance.changeNotifier.removeListener(
+      _onPermissionsChanged,
+    );
     _tabController.dispose();
     super.dispose();
   }
 
   void _onPermissionsChanged() {
     if (mounted) {
-      if (_tabController.index != 0) {
+      final canManagePerms = PermissionService.instance.hasPermission(
+        PosPermissions.staffPermissions,
+      );
+      if (!canManagePerms && _tabController.index != 0) {
         _tabController.index = 0;
       }
       setState(() {});
@@ -58,25 +115,36 @@ class _StaffManagementViewState extends State<StaffManagementView>
   }
 
   Future<void> _loadEmployees() async {
-    setState(() => _isLoading = true);
     final storeId = DevicePrefs.storeId;
     if (storeId != null) {
-      _employees = await widget.db.posDao.getEmployeesForStore(storeId);
+      final list =
+          await (widget.db.select(widget.db.employees)
+                ..where((e) => e.storeId.equals(storeId))
+                ..orderBy([(e) => OrderingTerm.asc(e.firstName)]))
+              .get();
+      if (mounted) {
+        setState(() {
+          _employees = list;
+          _isLoading = false;
+        });
+      }
     }
-    if (mounted) setState(() => _isLoading = false);
   }
 
   void _loadRolePermissions(String role) {
     setState(() {
       _selectedRole = role;
-      _workingRolePermissions =
-          PermissionService.instance.getRolePermissions(role);
+      _workingRolePermissions = PermissionService.instance.getRolePermissions(
+        role,
+      );
       _hasUnsavedChanges = false;
     });
   }
 
   void _showAddStaffDialog() async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.staffManage)) return;
+    if (!PermissionService.instance.hasPermission(PosPermissions.staffManage)) {
+      return;
+    }
     final bool? added = await showDialog(
       context: context,
       builder: (_) => AddStaffDialog(db: widget.db),
@@ -87,7 +155,11 @@ class _StaffManagementViewState extends State<StaffManagementView>
   }
 
   void _showEditPinDialog(Employee employee) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.staffResetPin)) return;
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.staffResetPin,
+    )) {
+      return;
+    }
     final bool? updated = await showDialog(
       context: context,
       builder: (_) => EditPinDialog(db: widget.db, employee: employee),
@@ -101,7 +173,11 @@ class _StaffManagementViewState extends State<StaffManagementView>
   }
 
   void _showEmployeePermissionsDialog(Employee employee) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.staffPermissions)) return;
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.staffPermissions,
+    )) {
+      return;
+    }
     final bool? changed = await showDialog(
       context: context,
       builder: (_) => EmployeePermissionsDialog(employee: employee),
@@ -112,7 +188,11 @@ class _StaffManagementViewState extends State<StaffManagementView>
   }
 
   void _showCreateCustomRoleDialog() async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.staffPermissions)) return;
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.staffPermissions,
+    )) {
+      return;
+    }
     final String? newRole = await showDialog(
       context: context,
       builder: (_) => const CreateCustomRoleDialog(),
@@ -129,9 +209,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
   }
 
   Future<void> _changeEmployeeRole(Employee employee, String newRole) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.staffManage)) return;
+    if (!PermissionService.instance.hasPermission(PosPermissions.staffManage)) {
+      return;
+    }
     await widget.db.posDao.updateEmployeeRole(employee.id, newRole);
-    await _loadEmployees();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -143,13 +224,16 @@ class _StaffManagementViewState extends State<StaffManagementView>
   }
 
   Future<void> _toggleEmployeeActive(Employee employee, bool isActive) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.staffManage)) return;
+    if (!PermissionService.instance.hasPermission(PosPermissions.staffManage)) {
+      return;
+    }
     await widget.db.posDao.updateEmployeeActive(employee.id, isActive);
-    await _loadEmployees();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${employee.firstName} is now ${isActive ? "Active" : "Deactivated"}.'),
+          content: Text(
+            '${employee.firstName} is now ${isActive ? "Active" : "Deactivated"}.',
+          ),
           backgroundColor: isActive ? Colors.green : Colors.orange,
         ),
       );
@@ -170,8 +254,9 @@ class _StaffManagementViewState extends State<StaffManagementView>
 
   void _toggleWorkingModuleAll(String moduleId, bool selectAll) {
     if (_selectedRole.toLowerCase() == 'admin') return;
-    final modulePerms =
-        PosPermissions.allPermissions.where((p) => p.moduleId == moduleId).map((p) => p.key);
+    final modulePerms = PosPermissions.allPermissions
+        .where((p) => p.moduleId == moduleId)
+        .map((p) => p.key);
 
     setState(() {
       if (selectAll) {
@@ -187,8 +272,9 @@ class _StaffManagementViewState extends State<StaffManagementView>
     if (_selectedRole.toLowerCase() == 'admin') return;
     setState(() {
       if (selectAll) {
-        _workingRolePermissions =
-            PosPermissions.allPermissions.map((p) => p.key).toSet();
+        _workingRolePermissions = PosPermissions.allPermissions
+            .map((p) => p.key)
+            .toSet();
       } else {
         _workingRolePermissions.clear();
       }
@@ -200,8 +286,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
     if (_selectedRole.toLowerCase() == 'admin') return;
     setState(() => _isSavingRole = true);
     try {
-      await PermissionService.instance
-          .saveRolePermissions(_selectedRole, _workingRolePermissions);
+      await PermissionService.instance.saveRolePermissions(
+        _selectedRole,
+        _workingRolePermissions,
+      );
       if (mounted) {
         setState(() {
           _hasUnsavedChanges = false;
@@ -218,7 +306,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
       if (mounted) {
         setState(() => _isSavingRole = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving role: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Error saving role: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -233,10 +324,16 @@ class _StaffManagementViewState extends State<StaffManagementView>
           'This will restore the original system default permissions for this role. Any custom modifications will be undone.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Reset to Default'),
           ),
         ],
@@ -249,7 +346,9 @@ class _StaffManagementViewState extends State<StaffManagementView>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Role "$_selectedRole" reset to default permissions.'),
+            content: Text(
+              'Role "$_selectedRole" reset to default permissions.',
+            ),
             backgroundColor: Colors.blue,
           ),
         );
@@ -271,7 +370,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
             'This role is currently assigned to ${assignedStaff.length} staff member(s). Reassign them to another role first before deleting.',
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
           ],
         ),
       );
@@ -282,12 +384,20 @@ class _StaffManagementViewState extends State<StaffManagementView>
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('Delete Role "$_selectedRole"?'),
-        content: const Text('Are you sure you want to delete this custom role template?'),
+        content: const Text(
+          'Are you sure you want to delete this custom role template?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -315,9 +425,15 @@ class _StaffManagementViewState extends State<StaffManagementView>
       return const Center(child: CircularProgressIndicator());
     }
 
-    final canManageStaff = PermissionService.instance.hasPermission(PosPermissions.staffManage);
-    final canManagePerms = PermissionService.instance.hasPermission(PosPermissions.staffPermissions);
-    final canResetPin = PermissionService.instance.hasPermission(PosPermissions.staffResetPin);
+    final canManageStaff = PermissionService.instance.hasPermission(
+      PosPermissions.staffManage,
+    );
+    final canManagePerms = PermissionService.instance.hasPermission(
+      PosPermissions.staffPermissions,
+    );
+    final canResetPin = PermissionService.instance.hasPermission(
+      PosPermissions.staffResetPin,
+    );
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -326,7 +442,12 @@ class _StaffManagementViewState extends State<StaffManagementView>
         children: [
           // Header Bar
           Padding(
-            padding: const EdgeInsets.only(left: 20, right: 20, top: 16, bottom: 8),
+            padding: const EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 16,
+              bottom: 8,
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -336,12 +457,18 @@ class _StaffManagementViewState extends State<StaffManagementView>
                     children: [
                       const Text(
                         'Staff & Permissions',
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'Manage staff credentials, access levels, and granular role permissions.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
@@ -355,7 +482,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accentColor,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
                     ),
                   ),
               ],
@@ -368,7 +498,9 @@ class _StaffManagementViewState extends State<StaffManagementView>
               padding: const EdgeInsets.symmetric(horizontal: 20.0),
               child: Container(
                 decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 1)),
+                  border: Border(
+                    bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+                  ),
                 ),
                 child: TabBar(
                   key: const Key('staff_tabs_bar'),
@@ -379,7 +511,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
                   unselectedLabelColor: Colors.grey.shade600,
                   indicatorColor: AppTheme.primaryColor,
                   indicatorWeight: 3,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                   tabs: [
                     Tab(
                       child: Row(
@@ -394,9 +529,14 @@ class _StaffManagementViewState extends State<StaffManagementView>
                       key: const Key('roles_and_permissions_tab'),
                       child: Row(
                         children: [
-                          const Icon(Icons.admin_panel_settings_rounded, size: 18),
+                          const Icon(
+                            Icons.admin_panel_settings_rounded,
+                            size: 18,
+                          ),
                           const SizedBox(width: 8),
-                          Text('Roles & Permissions (${PermissionService.instance.getAllRoles().length})'),
+                          Text(
+                            'Roles & Permissions (${PermissionService.instance.getAllRoles().length})',
+                          ),
                         ],
                       ),
                     ),
@@ -411,11 +551,19 @@ class _StaffManagementViewState extends State<StaffManagementView>
                 ? TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildStaffDirectoryTab(canManageStaff, canManagePerms, canResetPin),
+                      _buildStaffDirectoryTab(
+                        canManageStaff,
+                        canManagePerms,
+                        canResetPin,
+                      ),
                       _buildRolesAndPermissionsTab(),
                     ],
                   )
-                : _buildStaffDirectoryTab(canManageStaff, canManagePerms, canResetPin),
+                : _buildStaffDirectoryTab(
+                    canManageStaff,
+                    canManagePerms,
+                    canResetPin,
+                  ),
           ),
         ],
       ),
@@ -426,286 +574,256 @@ class _StaffManagementViewState extends State<StaffManagementView>
   // --------------------------------------------------------------------------
   // TAB 1: Staff Directory
   // --------------------------------------------------------------------------
-  Widget _buildStaffDirectoryTab(bool canManageStaff, bool canManagePerms, bool canResetPin) {
+  Widget _buildStaffDirectoryTab(
+    bool canManageStaff,
+    bool canManagePerms,
+    bool canResetPin,
+  ) {
     if (_employees.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.people_outline_rounded, size: 64, color: Colors.grey.shade400),
+            Icon(
+              Icons.people_outline_rounded,
+              size: 64,
+              color: Colors.grey.shade400,
+            ),
             const SizedBox(height: 16),
-            const Text('No staff members registered for this store.',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            const Text(
+              'No staff members registered for this store.',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 8),
-            Text('Click "+ Add Staff" above to create employee logins.',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+            Text(
+              'Click "+ Add Staff" above to create employee logins.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
           ],
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(20.0),
-      itemCount: _employees.length,
-      itemBuilder: (context, index) {
-        final employee = _employees[index];
-        final isCurrent = employee.id == DevicePrefs.currentEmployeeId;
-        final isAdmin = employee.position.toLowerCase() == 'admin';
-        final hasCustomOverrides =
-            PermissionService.instance.getEmployeeCustomPermissions(employee.id) != null;
+    final isCompact = MediaQuery.sizeOf(context).width < 650;
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: isCurrent ? AppTheme.primaryColor.withValues(alpha: 0.4) : Colors.grey.shade200,
-              width: isCurrent ? 1.5 : 1.0,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14.0),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isCompact = constraints.maxWidth < 650;
+    // Filter employees based on search query and role filter
+    final query = _searchQuery.trim().toLowerCase();
+    final filteredEmployees = _employees.where((e) {
+      if (query.isNotEmpty) {
+        final fullName = '${e.firstName} ${e.lastName}'.toLowerCase();
+        final email = (e.email ?? '').toLowerCase();
+        final role = e.position.toLowerCase();
+        if (!fullName.contains(query) &&
+            !email.contains(query) &&
+            !role.contains(query)) {
+          return false;
+        }
+      }
 
-                final avatar = CircleAvatar(
-                  radius: 20,
-                  backgroundColor: isAdmin
-                      ? Colors.amber.shade100
-                      : AppTheme.primaryColor.withValues(alpha: 0.1),
-                  child: Icon(
-                    isAdmin ? Icons.admin_panel_settings_rounded : Icons.person_rounded,
-                    color: isAdmin ? Colors.amber.shade800 : AppTheme.primaryColor,
-                    size: 20,
-                  ),
-                );
+      if (_selectedRoleFilter != 'All') {
+        if (_selectedRoleFilter == 'Inactive') {
+          if (e.isActive) return false;
+        } else if (_selectedRoleFilter == 'Active') {
+          if (!e.isActive) return false;
+        } else {
+          if (e.position.toLowerCase() != _selectedRoleFilter.toLowerCase()) {
+            return false;
+          }
+        }
+      }
 
-                final staffInfo = Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          '${employee.firstName} ${employee.lastName}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                        // Role Badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isAdmin ? Colors.amber.shade50 : Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: isAdmin ? Colors.amber.shade300 : Colors.blue.shade200,
-                            ),
-                          ),
-                          child: Text(
-                            employee.position,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: isAdmin ? Colors.amber.shade900 : Colors.blue.shade800,
-                            ),
-                          ),
-                        ),
-                        if (hasCustomOverrides)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.purple.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.purple.shade200),
-                            ),
-                            child: Text(
-                              'Custom Overrides',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.purple.shade800,
-                              ),
-                            ),
-                          ),
-                        if (isCurrent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade100,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              'YOU',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.green.shade800,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${employee.email ?? "No email"} • Active: ${employee.isActive ? "Yes" : "No"}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                  ],
-                );
+      return true;
+    }).toList();
 
-                final actionButtons = <Widget>[
-                  // Active Switch
-                  if (canManageStaff && !isAdmin)
-                    Row(
-                      key: Key('active_switch_row_${employee.id}'),
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          employee.isActive ? 'Active' : 'Inactive',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: employee.isActive ? Colors.green.shade700 : Colors.grey,
-                          ),
-                        ),
-                        Transform.scale(
-                          scale: 0.85,
-                          child: Switch(
-                            key: Key('active_switch_${employee.id}'),
-                            value: employee.isActive,
-                            activeThumbColor: Colors.green,
-                            onChanged: (val) => _toggleEmployeeActive(employee, val),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                  // Permissions Button
-                  if (canManagePerms)
-                    OutlinedButton.icon(
-                      key: Key('permissions_button_${employee.id}'),
-                      icon: Icon(
-                        hasCustomOverrides ? Icons.tune_rounded : Icons.shield_outlined,
-                        size: 15,
-                        color: hasCustomOverrides ? Colors.purple : AppTheme.primaryColor,
+    return Column(
+      children: [
+        // Compact search and quick role filter bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 36,
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search staff by name or email...',
+                      hintStyle: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
                       ),
-                      label: Text(
-                        hasCustomOverrides ? 'Overrides' : 'Permissions',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 34,
+                        minHeight: 34,
+                      ),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear_rounded, size: 16),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                    onChanged: (val) {
+                      setState(() => _searchQuery = val);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                tooltip: 'Filter by Role',
+                initialValue: _selectedRoleFilter,
+                child: Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: _selectedRoleFilter == 'All'
+                        ? Colors.white
+                        : AppTheme.primaryColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _selectedRoleFilter == 'All'
+                          ? Colors.grey.shade300
+                          : AppTheme.primaryColor,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.filter_list_rounded,
+                        size: 16,
+                        color: _selectedRoleFilter == 'All'
+                            ? Colors.grey.shade700
+                            : AppTheme.primaryColor,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _selectedRoleFilter,
                         style: TextStyle(
                           fontSize: 12,
-                          color: hasCustomOverrides ? Colors.purple : AppTheme.primaryColor,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        side: BorderSide(
-                          color: hasCustomOverrides ? Colors.purple.shade300 : Colors.grey.shade300,
-                        ),
-                      ),
-                      onPressed: () => _showEmployeePermissionsDialog(employee),
-                    ),
-
-                  // Reset PIN
-                  if (canResetPin)
-                    OutlinedButton.icon(
-                      key: Key('reset_pin_button_${employee.id}'),
-                      icon: const Icon(Icons.lock_reset_rounded, size: 15),
-                      label: const Text('Reset PIN', style: TextStyle(fontSize: 12)),
-                      style: OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => _showEditPinDialog(employee),
-                    ),
-
-                  // Change Role Menu
-                  if (canManageStaff && !isAdmin)
-                    PopupMenuButton<String>(
-                      key: Key('change_role_button_${employee.id}'),
-                      tooltip: 'Change Role',
-                      icon: const Icon(Icons.more_vert_rounded, size: 20),
-                      itemBuilder: (context) {
-                        final allRoles = PermissionService.instance.getAllRoles();
-                        return allRoles.map((role) {
-                          return PopupMenuItem(
-                            value: role,
-                            child: Row(
-                              children: [
-                                if (employee.position.toLowerCase() == role.toLowerCase())
-                                  const Icon(Icons.check, size: 16, color: Colors.green)
-                                else
-                                  const SizedBox(width: 16),
-                                const SizedBox(width: 8),
-                                Text(role),
-                              ],
-                            ),
-                          );
-                        }).toList();
-                      },
-                      onSelected: (newRole) {
-                        if (newRole.toLowerCase() != employee.position.toLowerCase()) {
-                          _changeEmployeeRole(employee, newRole);
-                        }
-                      },
-                    ),
-                ];
-
-                if (isCompact) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          avatar,
-                          const SizedBox(width: 12),
-                          Expanded(child: staffInfo),
-                        ],
-                      ),
-                      if (actionButtons.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Divider(height: 1, color: Colors.grey.shade200),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            alignment: WrapAlignment.end,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: actionButtons,
-                          ),
-                        ),
-                      ],
-                    ],
-                  );
-                } else {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      avatar,
-                      const SizedBox(width: 14),
-                      Expanded(child: staffInfo),
-                      const SizedBox(width: 12),
-                      ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.55),
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          alignment: WrapAlignment.end,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: actionButtons,
+                          fontWeight: FontWeight.bold,
+                          color: _selectedRoleFilter == 'All'
+                              ? Colors.grey.shade800
+                              : AppTheme.primaryColor,
                         ),
                       ),
                     ],
-                  );
-                }
-              },
-            ),
+                  ),
+                ),
+                onSelected: (filter) {
+                  setState(() => _selectedRoleFilter = filter);
+                },
+                itemBuilder: (ctx) {
+                  final roles = {'All', 'Active', 'Inactive'};
+                  for (final e in _employees) {
+                    roles.add(e.position);
+                  }
+                  return roles.map((r) {
+                    return PopupMenuItem(
+                      value: r,
+                      child: Text(r, style: const TextStyle(fontSize: 13)),
+                    );
+                  }).toList();
+                },
+              ),
+            ],
           ),
-        );
-      },
+        ),
+
+        // Staff cards list
+        Expanded(
+          child: filteredEmployees.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.search_off_rounded,
+                        size: 48,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No staff members found matching "$_searchQuery"',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      TextButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _searchQuery = '';
+                            _selectedRoleFilter = 'All';
+                          });
+                        },
+                        child: const Text('Reset Search & Filters'),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 6.0,
+                  ),
+                  itemCount: filteredEmployees.length,
+                  itemBuilder: (context, index) {
+                    final employee = filteredEmployees[index];
+                    final isCurrent =
+                        employee.id == DevicePrefs.currentEmployeeId;
+                    final isAdmin = employee.position.toLowerCase() == 'admin';
+                    final hasCustomOverrides =
+                        PermissionService.instance.getEmployeeCustomPermissions(
+                          employee.id,
+                        ) !=
+                        null;
+
+                    return RepaintBoundary(
+                      child: _StaffCard(
+                        employee: employee,
+                        isCurrent: isCurrent,
+                        isAdmin: isAdmin,
+                        hasCustomOverrides: hasCustomOverrides,
+                        isCompact: isCompact,
+                        canManageStaff: canManageStaff,
+                        canManagePerms: canManagePerms,
+                        canResetPin: canResetPin,
+                        onToggleActive: (val) =>
+                            _toggleEmployeeActive(employee, val),
+                        onShowPermissions: () =>
+                            _showEmployeePermissionsDialog(employee),
+                        onShowResetPin: () => _showEditPinDialog(employee),
+                        onChangeRole: (newRole) =>
+                            _changeEmployeeRole(employee, newRole),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 
@@ -722,202 +840,239 @@ class _StaffManagementViewState extends State<StaffManagementView>
         .where((e) => e.position.toLowerCase() == _selectedRole.toLowerCase())
         .length;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isCompact = constraints.maxWidth < 700;
+    final isCompact = MediaQuery.sizeOf(context).width < 700;
 
-        if (isCompact) {
-          return Column(
+    if (isCompact) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Mobile Top Role Selector Bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    key: ValueKey(_selectedRole),
+                    initialValue: _selectedRole,
+                    isDense: true,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Selected Role',
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    items: allRoles.map((role) {
+                      final isCustom = customRoles.contains(role);
+                      final count = _employees
+                          .where(
+                            (e) =>
+                                e.position.toLowerCase() == role.toLowerCase(),
+                          )
+                          .length;
+                      return DropdownMenuItem(
+                        value: role,
+                        child: Text(
+                          '$role ($count staff)${isCustom ? " • Custom" : ""}',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (newRole) {
+                      if (newRole != null && newRole != _selectedRole) {
+                        if (_hasUnsavedChanges) {
+                          _promptDiscardOrSave(
+                            () => _loadRolePermissions(newRole),
+                          );
+                        } else {
+                          _loadRolePermissions(newRole);
+                        }
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.add_rounded, size: 20),
+                  tooltip: 'New Custom Role',
+                  onPressed: _showCreateCustomRoleDialog,
+                ),
+              ],
+            ),
+          ),
+
+          // Permissions Matrix
+          Expanded(
+            child: _buildRoleMatrixContent(
+              isCompact: true,
+              isCustomRole: isCustomRole,
+              isAdminRole: isAdminRole,
+              assignedCount: assignedCount,
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Desktop / Tablet Layout
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Role Selector Sidebar
+        Container(
+          width: 240,
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(color: Colors.grey.shade200, width: 1.5),
+            ),
+            color: Colors.grey.shade50,
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Mobile Top Role Selector Bar
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-                ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        key: ValueKey(_selectedRole),
-                        initialValue: _selectedRole,
-                        isDense: true,
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: 'Selected Role',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          filled: true,
-                          fillColor: Colors.white,
-                        ),
-                        items: allRoles.map((role) {
-                          final isCustom = customRoles.contains(role);
-                          final count = _employees
-                              .where((e) => e.position.toLowerCase() == role.toLowerCase())
-                              .length;
-                          return DropdownMenuItem(
-                            value: role,
-                            child: Text(
-                              '$role ($count staff)${isCustom ? " • Custom" : ""}',
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (newRole) {
-                          if (newRole != null && newRole != _selectedRole) {
-                            if (_hasUnsavedChanges) {
-                              _promptDiscardOrSave(() => _loadRolePermissions(newRole));
-                            } else {
-                              _loadRolePermissions(newRole);
-                            }
-                          }
-                        },
+                    const Text(
+                      'Roles',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
+                    IconButton(
                       icon: const Icon(Icons.add_rounded, size: 20),
-                      tooltip: 'New Custom Role',
+                      tooltip: 'Create Custom Role',
                       onPressed: _showCreateCustomRoleDialog,
                     ),
                   ],
                 ),
               ),
-
-              // Permissions Matrix
               Expanded(
-                child: _buildRoleMatrixContent(
-                  isCompact: true,
-                  isCustomRole: isCustomRole,
-                  isAdminRole: isAdminRole,
-                  assignedCount: assignedCount,
+                child: ListView.builder(
+                  itemCount: allRoles.length,
+                  itemBuilder: (context, index) {
+                    final roleName = allRoles[index];
+                    final isSelected = roleName == _selectedRole;
+                    final roleStaffCount = _employees
+                        .where(
+                          (e) =>
+                              e.position.toLowerCase() ==
+                              roleName.toLowerCase(),
+                        )
+                        .length;
+                    final isCustom = customRoles.contains(roleName);
+                    final isAdmin = roleName.toLowerCase() == 'admin';
+
+                    return ListTile(
+                      selected: isSelected,
+                      selectedTileColor: AppTheme.primaryColor.withValues(
+                        alpha: 0.1,
+                      ),
+                      leading: Icon(
+                        isAdmin
+                            ? Icons.admin_panel_settings_rounded
+                            : isCustom
+                            ? Icons.badge_outlined
+                            : Icons.shield_outlined,
+                        color: isSelected
+                            ? AppTheme.primaryColor
+                            : Colors.grey.shade700,
+                        size: 20,
+                      ),
+                      title: Text(
+                        roleName,
+                        style: TextStyle(
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.w500,
+                          color: isSelected
+                              ? AppTheme.primaryColor
+                              : Colors.black87,
+                          fontSize: 14,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '$roleStaffCount staff assigned',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      trailing: isCustom
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blueGrey.shade100,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Custom',
+                                style: TextStyle(fontSize: 9),
+                              ),
+                            )
+                          : null,
+                      onTap: () {
+                        if (_hasUnsavedChanges) {
+                          _promptDiscardOrSave(
+                            () => _loadRolePermissions(roleName),
+                          );
+                        } else {
+                          _loadRolePermissions(roleName);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _showCreateCustomRoleDialog,
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text('New Custom Role'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
                 ),
               ),
             ],
-          );
-        }
+          ),
+        ),
 
-        // Desktop / Tablet Layout
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Role Selector Sidebar
-            Container(
-              width: 240,
-              decoration: BoxDecoration(
-                border: Border(right: BorderSide(color: Colors.grey.shade200, width: 1.5)),
-                color: Colors.grey.shade50,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Roles',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add_rounded, size: 20),
-                          tooltip: 'Create Custom Role',
-                          onPressed: _showCreateCustomRoleDialog,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: allRoles.length,
-                      itemBuilder: (context, index) {
-                        final roleName = allRoles[index];
-                        final isSelected = roleName == _selectedRole;
-                        final roleStaffCount = _employees
-                            .where((e) => e.position.toLowerCase() == roleName.toLowerCase())
-                            .length;
-                        final isCustom = customRoles.contains(roleName);
-                        final isAdmin = roleName.toLowerCase() == 'admin';
-
-                        return ListTile(
-                          selected: isSelected,
-                          selectedTileColor: AppTheme.primaryColor.withValues(alpha: 0.1),
-                          leading: Icon(
-                            isAdmin
-                                ? Icons.admin_panel_settings_rounded
-                                : isCustom
-                                    ? Icons.badge_outlined
-                                    : Icons.shield_outlined,
-                            color: isSelected ? AppTheme.primaryColor : Colors.grey.shade700,
-                            size: 20,
-                          ),
-                          title: Text(
-                            roleName,
-                            style: TextStyle(
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                              color: isSelected ? AppTheme.primaryColor : Colors.black87,
-                              fontSize: 14,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '$roleStaffCount staff assigned',
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                          ),
-                          trailing: isCustom
-                              ? Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blueGrey.shade100,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text('Custom', style: TextStyle(fontSize: 9)),
-                                )
-                              : null,
-                          onTap: () {
-                            if (_hasUnsavedChanges) {
-                              _promptDiscardOrSave(() => _loadRolePermissions(roleName));
-                            } else {
-                              _loadRolePermissions(roleName);
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _showCreateCustomRoleDialog,
-                        icon: const Icon(Icons.add_rounded, size: 16),
-                        label: const Text('New Custom Role'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Role Permissions Matrix View
-            Expanded(
-              child: _buildRoleMatrixContent(
-                isCompact: false,
-                isCustomRole: isCustomRole,
-                isAdminRole: isAdminRole,
-                assignedCount: assignedCount,
-              ),
-            ),
-          ],
-        );
-      },
+        // Role Permissions Matrix View
+        Expanded(
+          child: _buildRoleMatrixContent(
+            isCompact: false,
+            isCustomRole: isCustomRole,
+            isAdminRole: isAdminRole,
+            assignedCount: assignedCount,
+          ),
+        ),
+      ],
     );
   }
 
@@ -928,7 +1083,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
     required int assignedCount,
   }) {
     final header = Container(
-      padding: EdgeInsets.symmetric(horizontal: isCompact ? 14 : 20, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? 14 : 20,
+        vertical: 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
@@ -943,7 +1101,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
             children: [
               Text(
                 _selectedRole,
-                style: TextStyle(fontSize: isCompact ? 16 : 18, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: isCompact ? 16 : 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -951,31 +1112,31 @@ class _StaffManagementViewState extends State<StaffManagementView>
                   color: isAdminRole
                       ? Colors.amber.shade50
                       : isCustomRole
-                          ? Colors.purple.shade50
-                          : Colors.blue.shade50,
+                      ? Colors.purple.shade50
+                      : Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
                     color: isAdminRole
                         ? Colors.amber.shade200
                         : isCustomRole
-                            ? Colors.purple.shade200
-                            : Colors.blue.shade200,
+                        ? Colors.purple.shade200
+                        : Colors.blue.shade200,
                   ),
                 ),
                 child: Text(
                   isAdminRole
                       ? 'System Administrator (Locked)'
                       : isCustomRole
-                          ? 'Custom Role Template'
-                          : 'Standard Role Template',
+                      ? 'Custom Role Template'
+                      : 'Standard Role Template',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                     color: isAdminRole
                         ? Colors.amber.shade900
                         : isCustomRole
-                            ? Colors.purple.shade800
-                            : Colors.blue.shade800,
+                        ? Colors.purple.shade800
+                        : Colors.blue.shade800,
                   ),
                 ),
               ),
@@ -997,18 +1158,29 @@ class _StaffManagementViewState extends State<StaffManagementView>
               children: [
                 TextButton(
                   onPressed: () => _selectAllWorking(true),
-                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
                   child: const Text('Select All'),
                 ),
                 TextButton(
                   onPressed: () => _selectAllWorking(false),
-                  style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
                   child: const Text('Deselect All'),
                 ),
                 if (isCustomRole)
                   OutlinedButton.icon(
-                    icon: const Icon(Icons.delete_outline_rounded, size: 15, color: Colors.red),
-                    label: const Text('Delete Role', style: TextStyle(color: Colors.red, fontSize: 12)),
+                    icon: const Icon(
+                      Icons.delete_outline_rounded,
+                      size: 15,
+                      color: Colors.red,
+                    ),
+                    label: const Text(
+                      'Delete Role',
+                      style: TextStyle(color: Colors.red, fontSize: 12),
+                    ),
                     style: OutlinedButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       side: BorderSide(color: Colors.red.shade200),
@@ -1018,8 +1190,13 @@ class _StaffManagementViewState extends State<StaffManagementView>
                 else
                   OutlinedButton.icon(
                     icon: const Icon(Icons.restore_rounded, size: 15),
-                    label: const Text('Reset to Default', style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                    label: const Text(
+                      'Reset to Default',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                    ),
                     onPressed: _resetRoleToDefault,
                   ),
                 ElevatedButton.icon(
@@ -1030,16 +1207,26 @@ class _StaffManagementViewState extends State<StaffManagementView>
                       ? const SizedBox(
                           width: 12,
                           height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Icon(Icons.save_rounded, size: 15),
-                  label: const Text('Save Changes', style: TextStyle(fontSize: 12)),
+                  label: const Text(
+                    'Save Changes',
+                    style: TextStyle(fontSize: 12),
+                  ),
                   style: ElevatedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    backgroundColor:
-                        _hasUnsavedChanges ? Colors.green : AppTheme.primaryColor,
+                    backgroundColor: _hasUnsavedChanges
+                        ? Colors.green
+                        : AppTheme.primaryColor,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                   ),
                 ),
               ],
@@ -1052,11 +1239,18 @@ class _StaffManagementViewState extends State<StaffManagementView>
     final adminNotice = isAdminRole
         ? Container(
             width: double.infinity,
-            padding: EdgeInsets.symmetric(horizontal: isCompact ? 16 : 24, vertical: 12),
+            padding: EdgeInsets.symmetric(
+              horizontal: isCompact ? 16 : 24,
+              vertical: 12,
+            ),
             color: Colors.amber.shade50,
             child: Row(
               children: [
-                Icon(Icons.shield_rounded, color: Colors.amber.shade800, size: 20),
+                Icon(
+                  Icons.shield_rounded,
+                  color: Colors.amber.shade800,
+                  size: 20,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -1074,19 +1268,26 @@ class _StaffManagementViewState extends State<StaffManagementView>
         : null;
 
     if (isCompact) {
-      return ListView(
+      return ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
-        children: [
-          header,
-          if (adminNotice != null) ...[
-            const SizedBox(height: 8),
-            adminNotice,
-          ],
-          const SizedBox(height: 12),
-          ...PosPermissions.modules.map(
-            (m) => _buildModuleCard(m, isCompact: true, isAdminRole: isAdminRole),
-          ),
-        ],
+        itemCount:
+            PosPermissions.modules.length + 1 + (adminNotice != null ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == 0) return header;
+          if (adminNotice != null && index == 1) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+              child: adminNotice,
+            );
+          }
+          final moduleIndex = index - 1 - (adminNotice != null ? 1 : 0);
+          final module = PosPermissions.modules[moduleIndex];
+          return _buildModuleCard(
+            module,
+            isCompact: true,
+            isAdminRole: isAdminRole,
+          );
+        },
       );
     }
 
@@ -1100,7 +1301,11 @@ class _StaffManagementViewState extends State<StaffManagementView>
             itemCount: PosPermissions.modules.length,
             itemBuilder: (context, index) {
               final module = PosPermissions.modules[index];
-              return _buildModuleCard(module, isCompact: false, isAdminRole: isAdminRole);
+              return _buildModuleCard(
+                module,
+                isCompact: false,
+                isAdminRole: isAdminRole,
+              );
             },
           ),
         ),
@@ -1113,10 +1318,12 @@ class _StaffManagementViewState extends State<StaffManagementView>
     required bool isCompact,
     required bool isAdminRole,
   }) {
-    final modulePerms =
-        PosPermissions.allPermissions.where((p) => p.moduleId == module.id).toList();
-    final activeCount =
-        modulePerms.where((p) => _workingRolePermissions.contains(p.key)).length;
+    final modulePerms = PosPermissions.allPermissions
+        .where((p) => p.moduleId == module.id)
+        .toList();
+    final activeCount = modulePerms
+        .where((p) => _workingRolePermissions.contains(p.key))
+        .length;
     final allActive = activeCount == modulePerms.length;
 
     return Card(
@@ -1149,10 +1356,14 @@ class _StaffManagementViewState extends State<StaffManagementView>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: activeCount > 0 ? Colors.green.shade50 : Colors.grey.shade100,
+                  color: activeCount > 0
+                      ? Colors.green.shade50
+                      : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: activeCount > 0 ? Colors.green.shade300 : Colors.grey.shade300,
+                    color: activeCount > 0
+                        ? Colors.green.shade300
+                        : Colors.grey.shade300,
                   ),
                 ),
                 child: Text(
@@ -1160,7 +1371,9 @@ class _StaffManagementViewState extends State<StaffManagementView>
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: activeCount > 0 ? Colors.green.shade800 : Colors.grey.shade600,
+                    color: activeCount > 0
+                        ? Colors.green.shade800
+                        : Colors.grey.shade600,
                   ),
                 ),
               ),
@@ -1175,8 +1388,11 @@ class _StaffManagementViewState extends State<StaffManagementView>
                     size: 20,
                     color: allActive ? AppTheme.primaryColor : Colors.grey,
                   ),
-                  tooltip: allActive ? 'Deselect Module' : 'Select All in Module',
-                  onPressed: () => _toggleWorkingModuleAll(module.id, !allActive),
+                  tooltip: allActive
+                      ? 'Deselect Module'
+                      : 'Select All in Module',
+                  onPressed: () =>
+                      _toggleWorkingModuleAll(module.id, !allActive),
                 ),
               ],
             ],
@@ -1196,11 +1412,17 @@ class _StaffManagementViewState extends State<StaffManagementView>
                   children: [
                     Text(
                       perm.title,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
                     if (perm.isSensitive)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.orange.shade50,
                           borderRadius: BorderRadius.circular(4),
@@ -1233,13 +1455,14 @@ class _StaffManagementViewState extends State<StaffManagementView>
     );
   }
 
-
   void _promptDiscardOrSave(VoidCallback proceed) async {
     final save = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Unsaved Changes'),
-        content: Text('You have unsaved changes in role "$_selectedRole". Save before switching?'),
+        content: Text(
+          'You have unsaved changes in role "$_selectedRole". Save before switching?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false), // Discard
@@ -1263,19 +1486,12 @@ class _StaffManagementViewState extends State<StaffManagementView>
 
   Widget _buildUnsavedChangesBar() {
     return Material(
-      elevation: 12,
+      elevation: 6,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0F172A), // Dark slate
-          border: const Border(top: BorderSide(color: Color(0xFF334155))),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.25),
-              blurRadius: 10,
-              offset: const Offset(0, -3),
-            ),
-          ],
+        decoration: const BoxDecoration(
+          color: Color(0xFF0F172A), // Dark slate
+          border: Border(top: BorderSide(color: Color(0xFF334155), width: 1.5)),
         ),
         child: SafeArea(
           top: false,
@@ -1287,7 +1503,11 @@ class _StaffManagementViewState extends State<StaffManagementView>
                   color: Colors.amber.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.edit_note_rounded, color: Colors.amber, size: 20),
+                child: const Icon(
+                  Icons.edit_note_rounded,
+                  color: Colors.amber,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1318,7 +1538,10 @@ class _StaffManagementViewState extends State<StaffManagementView>
                     : () {
                         _loadRolePermissions(_selectedRole);
                       },
-                child: const Text('Discard', style: TextStyle(color: Colors.redAccent)),
+                child: const Text(
+                  'Discard',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
               ),
               const SizedBox(width: 6),
               ElevatedButton.icon(
@@ -1328,20 +1551,313 @@ class _StaffManagementViewState extends State<StaffManagementView>
                     ? const SizedBox(
                         width: 14,
                         height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Icon(Icons.check_rounded, size: 16),
-                label: const Text('Save Changes', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Save Changes',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Dedicated Staff Card (removes LayoutBuilder and isolates repaints)
+// ----------------------------------------------------------------------------
+class _StaffCard extends StatelessWidget {
+  final Employee employee;
+  final bool isCurrent;
+  final bool isAdmin;
+  final bool hasCustomOverrides;
+  final bool isCompact;
+  final bool canManageStaff;
+  final bool canManagePerms;
+  final bool canResetPin;
+  final ValueChanged<bool> onToggleActive;
+  final VoidCallback onShowPermissions;
+  final VoidCallback onShowResetPin;
+  final ValueChanged<String> onChangeRole;
+
+  const _StaffCard({
+    required this.employee,
+    required this.isCurrent,
+    required this.isAdmin,
+    required this.hasCustomOverrides,
+    required this.isCompact,
+    required this.canManageStaff,
+    required this.canManagePerms,
+    required this.canResetPin,
+    required this.onToggleActive,
+    required this.onShowPermissions,
+    required this.onShowResetPin,
+    required this.onChangeRole,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final avatar = CircleAvatar(
+      radius: 20,
+      backgroundColor: isAdmin
+          ? Colors.amber.shade100
+          : AppTheme.primaryColor.withValues(alpha: 0.1),
+      child: Icon(
+        isAdmin ? Icons.admin_panel_settings_rounded : Icons.person_rounded,
+        color: isAdmin ? Colors.amber.shade800 : AppTheme.primaryColor,
+        size: 20,
+      ),
+    );
+
+    final staffInfo = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              '${employee.firstName} ${employee.lastName}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+            ),
+            // Role Badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isAdmin ? Colors.amber.shade50 : Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isAdmin ? Colors.amber.shade300 : Colors.blue.shade200,
+                ),
+              ),
+              child: Text(
+                employee.position,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isAdmin ? Colors.amber.shade900 : Colors.blue.shade800,
+                ),
+              ),
+            ),
+            if (hasCustomOverrides)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.purple.shade200),
+                ),
+                child: Text(
+                  'Custom Overrides',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.purple.shade800,
+                  ),
+                ),
+              ),
+            if (isCurrent)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'YOU',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.green.shade800,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${employee.email ?? "No email"} • Active: ${employee.isActive ? "Yes" : "No"}',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+      ],
+    );
+
+    final actionButtons = <Widget>[
+      // Active Switch
+      if (canManageStaff && !isAdmin)
+        Row(
+          key: Key('active_switch_row_${employee.id}'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              employee.isActive ? 'Active' : 'Inactive',
+              style: TextStyle(
+                fontSize: 12,
+                color: employee.isActive ? Colors.green.shade700 : Colors.grey,
+              ),
+            ),
+            Transform.scale(
+              scale: 0.85,
+              child: Switch(
+                key: Key('active_switch_${employee.id}'),
+                value: employee.isActive,
+                activeThumbColor: Colors.green,
+                onChanged: onToggleActive,
+              ),
+            ),
+          ],
+        ),
+
+      // Permissions Button
+      if (canManagePerms)
+        OutlinedButton.icon(
+          key: Key('permissions_button_${employee.id}'),
+          icon: Icon(
+            hasCustomOverrides ? Icons.tune_rounded : Icons.shield_outlined,
+            size: 15,
+            color: hasCustomOverrides ? Colors.purple : AppTheme.primaryColor,
+          ),
+          label: Text(
+            hasCustomOverrides ? 'Overrides' : 'Permissions',
+            style: TextStyle(
+              fontSize: 12,
+              color: hasCustomOverrides ? Colors.purple : AppTheme.primaryColor,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            side: BorderSide(
+              color: hasCustomOverrides
+                  ? Colors.purple.shade300
+                  : Colors.grey.shade300,
+            ),
+          ),
+          onPressed: onShowPermissions,
+        ),
+
+      // Reset PIN
+      if (canResetPin)
+        OutlinedButton.icon(
+          key: Key('reset_pin_button_${employee.id}'),
+          icon: const Icon(Icons.lock_reset_rounded, size: 15),
+          label: const Text('Reset PIN', style: TextStyle(fontSize: 12)),
+          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+          onPressed: onShowResetPin,
+        ),
+
+      // Change Role Menu
+      if (canManageStaff && !isAdmin)
+        PopupMenuButton<String>(
+          key: Key('change_role_button_${employee.id}'),
+          tooltip: 'Change Role',
+          icon: const Icon(Icons.more_vert_rounded, size: 20),
+          itemBuilder: (context) {
+            final allRoles = PermissionService.instance.getAllRoles();
+            return allRoles.map((role) {
+              return PopupMenuItem(
+                value: role,
+                child: Row(
+                  children: [
+                    if (employee.position.toLowerCase() == role.toLowerCase())
+                      const Icon(Icons.check, size: 16, color: Colors.green)
+                    else
+                      const SizedBox(width: 16),
+                    const SizedBox(width: 8),
+                    Text(role),
+                  ],
+                ),
+              );
+            }).toList();
+          },
+          onSelected: (newRole) {
+            if (newRole.toLowerCase() != employee.position.toLowerCase()) {
+              onChangeRole(newRole);
+            }
+          },
+        ),
+    ];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isCurrent
+              ? AppTheme.primaryColor.withValues(alpha: 0.4)
+              : Colors.grey.shade200,
+          width: isCurrent ? 1.5 : 1.0,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14.0),
+        child: isCompact
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      avatar,
+                      const SizedBox(width: 12),
+                      Expanded(child: staffInfo),
+                    ],
+                  ),
+                  if (actionButtons.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Divider(height: 1, color: Colors.grey.shade200),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: actionButtons,
+                      ),
+                    ),
+                  ],
+                ],
+              )
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  avatar,
+                  const SizedBox(width: 14),
+                  Expanded(child: staffInfo),
+                  const SizedBox(width: 12),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      alignment: WrapAlignment.end,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: actionButtons,
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
