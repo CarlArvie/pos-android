@@ -6,3 +6,4 @@
 | transactions | 2026-09-28 | ui, logic, db | `perf/transactions` | `[Verified]` | Optimized (memoized streams & maps, search debounce, zero-overflow 360x640 mobile cards, RepaintBoundaries, 132 passing tests) | In backlog: server-side pagination for historical sync |
 | counter | 2026-09-28 | ui, logic, db | `perf/counter` | `[Verified]` | Optimized (persistent streams, O(1) cart lookups, debounced search, RepaintBoundaries, responsive checkout tender layout, 132 passing tests) | None |
 | reports | 2026-09-28 | ui, logic, db | `perf/reports` | `[Verified]` | Optimized (chunked queries >1000 txs, selective dimension loading, cached future, O(I+P) linear valuation, no BoxShadow, 135 passing tests) | None |
+| staff-cashier | 2026-10-03 | ui, logic, db | `perf/staff-cashier` | `[Verified]` | Optimized (reactive employee stream, search & role filter, removed LayoutBuilder and BoxShadow, 141 passing tests) | None |
