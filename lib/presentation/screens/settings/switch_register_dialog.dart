@@ -37,10 +37,14 @@ class _SwitchRegisterDialogState extends State<SwitchRegisterDialog> {
   }
 
   void _selectRegister(CashRegister register) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.storesSwitch)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.storesSwitch,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to switch POS terminals.'),
+          content: Text(
+            'Access Denied: You do not have permission to switch POS terminals.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -53,10 +57,14 @@ class _SwitchRegisterDialogState extends State<SwitchRegisterDialog> {
 
   @override
   Widget build(BuildContext context) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.storesSwitch)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.storesSwitch,
+    )) {
       return AlertDialog(
         title: const Text('Access Denied'),
-        content: const Text('You do not have permission to switch POS terminals.'),
+        content: const Text(
+          'You do not have permission to switch POS terminals.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -69,30 +77,53 @@ class _SwitchRegisterDialogState extends State<SwitchRegisterDialog> {
     return AlertDialog(
       title: const Text('Switch POS Terminal'),
       content: _isLoading
-          ? const SizedBox(width: 300, height: 100, child: Center(child: CircularProgressIndicator()))
-          : SizedBox(
+          ? const SizedBox(
               width: 300,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: _registers.length,
-                itemBuilder: (context, index) {
-                  final register = _registers[index];
-                  final isCurrent = register.id == widget.currentRegisterId;
-                  return ListTile(
-                    leading: const Icon(Icons.point_of_sale_rounded),
-                    title: Text(register.registerName),
-                    trailing: isCurrent
-                        ? const Text('Active', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold))
-                        : OutlinedButton(
-                            onPressed: () => _selectRegister(register),
-                            child: const Text('Select'),
-                          ),
-                  );
-                },
+              height: 100,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 400,
+                maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+              ),
+              child: SizedBox(
+                width: 300,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _registers.length,
+                  itemBuilder: (context, index) {
+                    final register = _registers[index];
+                    final isCurrent = register.id == widget.currentRegisterId;
+                    return ListTile(
+                      leading: const Icon(Icons.point_of_sale_rounded),
+                      title: Text(register.registerName),
+                      trailing: isCurrent
+                          ? const Text(
+                              'Active',
+                              style: TextStyle(
+                                color: AppTheme.primaryColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            )
+                          : OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(64, 44),
+                              ),
+                              onPressed: () => _selectRegister(register),
+                              child: const Text('Select'),
+                            ),
+                    );
+                  },
+                ),
               ),
             ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(64, 44)),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
       ],
     );
   }

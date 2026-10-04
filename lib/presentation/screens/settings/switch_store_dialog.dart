@@ -37,10 +37,14 @@ class _SwitchStoreDialogState extends State<SwitchStoreDialog> {
   }
 
   void _selectStore(Store store) async {
-    if (!PermissionService.instance.hasPermission(PosPermissions.storesSwitch)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.storesSwitch,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Access Denied: You do not have permission to switch store branches.'),
+          content: Text(
+            'Access Denied: You do not have permission to switch store branches.',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -51,7 +55,9 @@ class _SwitchStoreDialogState extends State<SwitchStoreDialog> {
     if (registers.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cannot switch: This store has no POS terminals.')),
+        const SnackBar(
+          content: Text('Cannot switch: This store has no POS terminals.'),
+        ),
       );
       return;
     }
@@ -65,10 +71,14 @@ class _SwitchStoreDialogState extends State<SwitchStoreDialog> {
 
   @override
   Widget build(BuildContext context) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.storesSwitch)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.storesSwitch,
+    )) {
       return AlertDialog(
         title: const Text('Access Denied'),
-        content: const Text('You do not have permission to switch store branches.'),
+        content: const Text(
+          'You do not have permission to switch store branches.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -81,30 +91,53 @@ class _SwitchStoreDialogState extends State<SwitchStoreDialog> {
     return AlertDialog(
       title: const Text('Switch Store Branch'),
       content: _isLoading
-          ? const SizedBox(width: 300, height: 100, child: Center(child: CircularProgressIndicator()))
-          : SizedBox(
+          ? const SizedBox(
               width: 300,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: _stores.length,
-                itemBuilder: (context, index) {
-                  final store = _stores[index];
-                  final isCurrent = store.id == widget.currentStoreId;
-                  return ListTile(
-                    leading: const Icon(Icons.storefront_rounded),
-                    title: Text(store.storeName),
-                    trailing: isCurrent
-                        ? const Text('Active', style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold))
-                        : OutlinedButton(
-                            onPressed: () => _selectStore(store),
-                            child: const Text('Select'),
-                          ),
-                  );
-                },
+              height: 100,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          : ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 400,
+                maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+              ),
+              child: SizedBox(
+                width: 300,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _stores.length,
+                  itemBuilder: (context, index) {
+                    final store = _stores[index];
+                    final isCurrent = store.id == widget.currentStoreId;
+                    return ListTile(
+                      leading: const Icon(Icons.storefront_rounded),
+                      title: Text(store.storeName),
+                      trailing: isCurrent
+                          ? const Text(
+                              'Active',
+                              style: TextStyle(
+                                color: AppTheme.primaryColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            )
+                          : OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(64, 44),
+                              ),
+                              onPressed: () => _selectStore(store),
+                              child: const Text('Select'),
+                            ),
+                    );
+                  },
+                ),
               ),
             ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(64, 44)),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
       ],
     );
   }

@@ -31,10 +31,14 @@ class _EditCompanyDialogState extends State<EditCompanyDialog> {
 
   @override
   Widget build(BuildContext context) {
-    if (!PermissionService.instance.hasPermission(PosPermissions.settingsCompanyProfile)) {
+    if (!PermissionService.instance.hasPermission(
+      PosPermissions.settingsCompanyProfile,
+    )) {
       return AlertDialog(
         title: const Text('Access Denied'),
-        content: const Text('You do not have permission to edit company profile.'),
+        content: const Text(
+          'You do not have permission to edit company profile.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -46,13 +50,23 @@ class _EditCompanyDialogState extends State<EditCompanyDialog> {
 
     return AlertDialog(
       title: const Text('Edit Company Name'),
-      content: TextField(
-        controller: _nameController,
-        decoration: const InputDecoration(labelText: 'Company Name', border: OutlineInputBorder()),
+      content: SingleChildScrollView(
+        child: TextField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: 'Company Name',
+            border: OutlineInputBorder(),
+          ),
+        ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          style: TextButton.styleFrom(minimumSize: const Size(64, 44)),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         ElevatedButton(
+          style: ElevatedButton.styleFrom(minimumSize: const Size(64, 44)),
           onPressed: () async {
             if (_nameController.text.trim().isEmpty) return;
             await widget.db.posDao.updateCompany(
